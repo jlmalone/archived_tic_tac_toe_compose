@@ -43,3 +43,12 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+gradle/
+desktop.run.xml
+gradle.xml
+gradle-wrapper.jar
+gradle-wrapper.properties
+gradlew
+gradlew.bat
+misc.xml
+vcs.xml

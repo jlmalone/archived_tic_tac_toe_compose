@@ -1,6 +1,5 @@
 package vision.salient
 
-// Imports needed for manual interaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -10,31 +9,21 @@ import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.FunctionReturnDecoder
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
-import org.web3j.abi.datatypes.Bool
-import org.web3j.abi.datatypes.DynamicArray
-import org.web3j.abi.datatypes.Event // Use this specific Event class
+import org.web3j.abi.datatypes.Event
 import org.web3j.abi.datatypes.Function
-import org.web3j.abi.datatypes.Type // Import Type for the List
-import org.web3j.abi.datatypes.generated.Uint8 // Use this for uint8
+import org.web3j.abi.datatypes.generated.Uint8
 import org.web3j.crypto.Credentials
+import org.web3j.crypto.RawTransaction
+import org.web3j.crypto.TransactionEncoder
 import org.web3j.protocol.Web3j
 import org.web3j.protocol.core.DefaultBlockParameterName
 import org.web3j.protocol.core.methods.request.Transaction
-import org.web3j.protocol.core.methods.response.EthSendTransaction // Ensure this import exists
-import org.web3j.protocol.core.methods.response.Log
-import org.web3j.protocol.core.methods.response.TransactionReceipt // Final receipt
+import org.web3j.protocol.core.methods.response.TransactionReceipt
 import org.web3j.protocol.http.HttpService
-import org.web3j.tx.RawTransactionManager
-import org.web3j.tx.TransactionManager // For constants
-import org.web3j.tx.gas.DefaultGasProvider
-import org.web3j.tx.response.PollingTransactionReceiptProcessor // For waiting
 import org.web3j.utils.Numeric
 import io.github.cdimascio.dotenv.dotenv
-import java.io.IOException // For exception handling
 import java.math.BigInteger
 
-
-// Data class to load addresses from JSON
 @Serializable
 private data class DeploymentAddresses(
     val gameImplementationAddress: String? = null,
@@ -42,187 +31,173 @@ private data class DeploymentAddresses(
 )
 
 object Blockchain {
-
     // --- Configuration ---
     private val dotenv = dotenv { ignoreIfMissing = true }
-    private val ALCHEMY_API_KEY = dotenv["SEPOLIA_RPC_URL"]?.substringAfterLast('/')
-        ?: throw IllegalStateException("SEPOLIA_RPC_URL missing or invalid in .env")
-    private val RPC_URL = "https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY"
-    private val PRIVATE_KEY_PLAYER1 = dotenv["PRIVATE_KEY_PLAYER1"] ?: throw RuntimeException("PRIVATE_KEY_PLAYER1 not found")
-    private val PRIVATE_KEY_PLAYER2 = dotenv["PRIVATE_KEY_PLAYER2"] ?: throw RuntimeException("PRIVATE_KEY_PLAYER2 not found")
+    private val ALCHEMY_API_KEY = dotenv["SEPOLIA_ALCHEMY_API_KEY"]
+        ?: throw IllegalStateException("SEPOLIA_API_KEY missing")
+    val LOCAL = dotenv["LOCAL"]?.toBoolean() ?: true
+    private val RPC_URL =
+        if (LOCAL) "http://127.0.0.1:8545/" else "https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY"
 
-    private val deploymentInfo: DeploymentAddresses? by lazy { loadDeploymentInfo() }
-    val factoryContractAddress: String? get() = deploymentInfo?.factoryAddress
-    private var currentGameContractAddress: String? = null
-    private const val SEPOLIA_CHAIN_ID = 11155111L
 
-    // --- ABIs ---
-    private const val factoryAbiString: String = """[{"inputs":[{"internalType":"address","name":"_gameMaster","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"FailedDeployment","type":"error"},{"inputs":[{"internalType":"uint256","name":"balance","type":"uint256"},{"internalType":"uint256","name":"needed","type":"uint256"}],"name":"InsufficientBalance","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"gameAddress","type":"address"}],"name":"GameCreated","type":"event"},{"inputs":[],"name":"createGame","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"gameMaster","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}]"""
-    private const val gameAbiString: String = """[{"inputs":[],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[],"name":"GameDraw","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"winner","type":"address"}],"name":"GameWon","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"player","type":"address"},{"indexed":false,"internalType":"uint8","name":"row","type":"uint8"},{"indexed":false,"internalType":"uint8","name":"col","type":"uint8"}],"name":"MoveMade","type":"event"},{"inputs":[{"internalType":"uint8","name":"","type":"uint8"},{"internalType":"uint8","name":"","type":"uint8"}],"name":"board","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"gameEnded","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"getBoardState","outputs":[{"internalType":"address[3][3]","name":"","type":"address[3][3]"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"lastPlayer","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint8","name":"row","type":"uint8"},{"internalType":"uint8","name":"col","type":"uint8"}],"name":"makeMove","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"winner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}]"""
+    //todo env
+    val SEPOLIA_CHAIN_ID : Long=  dotenv["SEPOLIA_CHAIN_ID"]?.toLongOrNull()?: 11155111L
+    val HARDHAT_CHAIN_ID =  dotenv["HARDHAT_CHAIN_ID"]?.toLongOrNull()?: 31337L
 
-    // --- Web3j Instances & Credentials ---
+//    private val RPC_URL =
+//    private const val SEPOLIA_CHAIN_ID = 11155111L
+
+    // --- Web3j & Credentials ---
     private val web3j: Web3j by lazy { Web3j.build(HttpService(RPC_URL)) }
-    val credentialsPlayer1: Credentials by lazy { Credentials.create(PRIVATE_KEY_PLAYER1) }
-    val credentialsPlayer2: Credentials by lazy { Credentials.create(PRIVATE_KEY_PLAYER2) }
-    private val gasProvider: DefaultGasProvider by lazy { DefaultGasProvider() }
-
-    // --- Corrected Event Definition ---
-    // Constructor takes name and a single list of TypeReferences
-    private val gameCreatedEvent = Event(
-        "GameCreated", // Event name matches ABI
-        // Define the single list of parameters, marking indexed ones
-        listOf<TypeReference<*>>( // Explicitly type the list
-            TypeReference.create(Address::class.java, true) // gameAddress is indexed address
+    val credentialsPlayer1: Credentials by lazy {
+        Credentials.create(
+            if (LOCAL) dotenv["PRIVATE_KEY_HARDHAT_0"] else dotenv["PRIVATE_KEY_PLAYER1"] ?: error("Missing PK1")
         )
-    )
-    private val gameCreatedEventSignature = EventEncoder.encode(gameCreatedEvent)
+    }
+    val credentialsPlayer2: Credentials by lazy {
+        Credentials.create(
+            if (LOCAL) dotenv["PRIVATE_KEY_HARDHAT_1"] else dotenv["PRIVATE_KEY_PLAYER2"] ?: error("Missing PK2")
+        )
+    }
 
-    // --- Load Deployment Info ---
+    // --- Deployment Info ---
+    private val deploymentInfo: DeploymentAddresses? by lazy { loadDeploymentInfo() }
+    fun getFactoryAddress(): String? = deploymentInfo?.factoryAddress
+
     private fun loadDeploymentInfo(): DeploymentAddresses? {
-        println("Attempting to load deployment info from resources/deployment_output.json...")
-        return try {
-            val resourceStream = this::class.java.classLoader.getResourceAsStream("deployment_output.json")
-            if (resourceStream == null) {
-                println("WARNING: deployment_output.json not found.")
-                null // Return null if file not found
-            } else {
-                val jsonString = resourceStream.bufferedReader().use { it.readText() }
-                val addresses = Json.decodeFromString<DeploymentAddresses>(jsonString)
-                println("Loaded Factory Address: ${addresses.factoryAddress}")
-                addresses
-            }
-        } catch (e: Exception) {
-            println("!!! ERROR loading or parsing deployment_output.json: ${e.message}")
-            null // Return null on error
-        }
+        val stream = javaClass.classLoader.getResourceAsStream("deployment_output.json") ?: return null
+        return Json { ignoreUnknownKeys = true }.decodeFromString(stream.reader().readText())
     }
 
-    // --- State Management ---
-    fun printDerivedAddresses() { /* ... as before ... */ }
-    fun getCurrentGameAddress(): String? = currentGameContractAddress
-    fun getFactoryAddress(): String? = factoryContractAddress
-    fun setCurrentGameAddress(address: String?) { currentGameContractAddress = address }
+    // --- State ---
+    private var currentGameAddress: String? = null
+    fun setCurrentGameAddress(addr: String?) {
+        currentGameAddress = addr
+    }
 
-    // --- Core Interaction Functions ---
+    fun getCurrentGameAddress(): String? = currentGameAddress
 
-    /** Calls createGame, waits for receipt, parses event manually. */
+    // --- Logging ---
+    fun printDerivedAddresses() {
+        println("--- Address Info ---")
+        println("Player1: ${credentialsPlayer1.address}")
+        println("Player2: ${credentialsPlayer2.address}")
+        println("Factory: ${getFactoryAddress() ?: "<none>"}")
+        println("Game: ${currentGameAddress ?: "<none>"}")
+        println("RPC: $RPC_URL")
+        println("---------------------")
+    }
+
+    // --- Gas price calc (1.5× market, bump 10% on retry) ---
+    suspend fun calculateGasPrice(
+        previous: BigInteger? = null
+    ): BigInteger = withContext(Dispatchers.IO) {
+        val market = web3j.ethGasPrice().send().gasPrice
+        val target = market.multiply(BigInteger.valueOf(3)).divide(BigInteger.valueOf(2))
+        val bump = previous?.multiply(BigInteger.valueOf(11))?.divide(BigInteger.valueOf(10)) ?: BigInteger.ZERO
+        target.max(bump)
+    }
+
+    // --- Send & wait ---
+    suspend fun sendTransaction(
+        from: Credentials,
+        to: String,
+        data: String,
+        value: BigInteger = BigInteger.ZERO,
+        prevGas: BigInteger? = null,
+        retry: Int = 0
+    ): String = withContext(Dispatchers.IO) {
+        val nonce = web3j.ethGetTransactionCount(from.address, DefaultBlockParameterName.PENDING)
+            .send().transactionCount
+
+        val gasPrice = calculateGasPrice(prevGas)
+        val gasLimit = web3j.ethEstimateGas(Transaction.createEthCallTransaction(from.address, to, data))
+            .send().amountUsed.multiply(BigInteger.valueOf(150)).divide(BigInteger.valueOf(100))
+
+        val raw = RawTransaction.createTransaction(nonce, gasPrice, gasLimit, to, value, data)
+
+
+// …
+
+        val usedChainId = if (LOCAL) HARDHAT_CHAIN_ID else SEPOLIA_CHAIN_ID
+
+
+        val signed = TransactionEncoder.signMessage(raw, usedChainId, from)
+        val txHex = Numeric.toHexString(signed)
+
+        val resp = web3j.ethSendRawTransaction(txHex).send()
+        if (resp.hasError()) {
+            val msg = resp.error.message
+            if (retry == 0 && msg.contains("underpriced", ignoreCase = true)) {
+                return@withContext sendTransaction(from, to, data, value, gasPrice, 1)
+            }
+            error("TX Error: $msg")
+        }
+        resp.transactionHash
+    }
+
+    /** Polls receipt up to 120×2s intervals */
+    suspend fun waitForReceipt(txHash: String): TransactionReceipt? = withContext(Dispatchers.IO) {
+        repeat(120) { i ->
+            val byHash = web3j.ethGetTransactionByHash(txHash).send()
+            if (!byHash.transaction.isEmpty) println("📦 in mempool... attempt ${i + 1}")
+
+            val recOpt = web3j.ethGetTransactionReceipt(txHash).send().transactionReceipt
+            if (recOpt.isPresent) return@withContext recOpt.get()
+            kotlinx.coroutines.delay(2000)
+        }
+        null
+    }
+
+    // --- Core flows ---
     suspend fun createGameByPlayer1(): String? = withContext(Dispatchers.IO) {
-        val currentFactoryAddress = factoryContractAddress ?: throw IllegalStateException("Factory address not loaded.")
-        val function = Function("createGame", emptyList(), listOf(TypeReference.create(Address::class.java)))
-        val encodedFunction = FunctionEncoder.encode(function)
-        val txManager = RawTransactionManager(web3j, credentialsPlayer1, SEPOLIA_CHAIN_ID)
+        val factory = getFactoryAddress() ?: error("No factory")
+        val fn = Function("createGame", emptyList(), listOf(TypeReference.create(Address::class.java)))
+        val data = FunctionEncoder.encode(fn)
 
-        println("Sending createGame transaction to Factory $currentFactoryAddress...")
-        // Step 1: Send Transaction (returns EthSendTransaction with hash)
-        val ethSendTx: EthSendTransaction = try { // Explicitly type the variable
-            txManager.sendTransaction(
-                gasProvider.gasPrice, BigInteger.valueOf(1_500_000L),
-                currentFactoryAddress, encodedFunction, BigInteger.ZERO
-            )
-        } catch (e: Exception) { throw RuntimeException("Failed to send tx: ${e.message}", e) }
+        val hash = sendTransaction(credentialsPlayer1, factory, data)
+        val rec = waitForReceipt(hash) ?: error("No receipt")
 
-        // Use getter methods for EthSendTransaction properties
-        if (ethSendTx.hasError()) { // Use getter
-            throw RuntimeException("Node error sending tx: ${ethSendTx.error.message}") // Access error message
-        }
-        val txHash = ethSendTx.transactionHash // Use getter (or property if hasError check works)
-        if (txHash == null) {
-            throw RuntimeException("Tx sent but no hash received.")
-        }
-        println("Transaction sent. Tx Hash: $txHash. Waiting for receipt...")
-
-        // Step 2: Wait for Receipt (remains the same)
-        val receiptProcessor = PollingTransactionReceiptProcessor(web3j, TransactionManager.DEFAULT_POLLING_FREQUENCY, TransactionManager.DEFAULT_POLLING_ATTEMPTS_PER_TX_HASH)
-        val txReceipt: TransactionReceipt = try {
-            receiptProcessor.waitForTransactionReceipt(txHash)
-        } catch (e: Exception) { throw RuntimeException("Failed to get receipt for $txHash: ${e.message}", e) }
-
-        // Step 3: Process Receipt (use getters)
-        val status = txReceipt.getStatus()
-        val blockNumber = txReceipt.getBlockNumber()
-        println("Receipt received. Status: $status. Block: $blockNumber")
-        if (status != "0x1") throw RuntimeException("Tx failed on chain (Status: $status)")
-
-        // Step 4: Parse Event (remains the same)
-        var newGameAddress: String? = null
-        for (log in txReceipt.logs) { /* ... event parsing logic ... */ }
-
-        if (newGameAddress != null) { setCurrentGameAddress(newGameAddress) }
-        else { println("Warning: GameCreated event log not found.") }
-        return@withContext newGameAddress
-    }
-
-    /** Calls makeMove, waits for receipt. */
-    suspend fun makeMove(playerIndex: Int, row: Int, col: Int): String = withContext(Dispatchers.IO) {
-        val gameAddr = currentGameContractAddress ?: throw IllegalStateException("No current game address.")
-        val credentials = if (playerIndex == 1) credentialsPlayer1 else credentialsPlayer2
-        val txManager = RawTransactionManager(web3j, credentials, SEPOLIA_CHAIN_ID)
-        val function = Function("makeMove", listOf(Uint8(row.toLong()), Uint8(col.toLong())), emptyList())
-        val encodedFunction = FunctionEncoder.encode(function)
-
-        println("Sending makeMove($row, $col) to $gameAddr as Player $playerIndex...")
-        // Step 1: Send Transaction
-        val ethSendTx: EthSendTransaction = try { // Explicitly type
-            txManager.sendTransaction(gasProvider.gasPrice, BigInteger.valueOf(200_000L), gameAddr, encodedFunction, BigInteger.ZERO)
-        } catch (e: Exception) { throw RuntimeException("Failed to send makeMove tx: ${e.message}", e) }
-
-        // Use getter methods for EthSendTransaction properties
-        if (ethSendTx.hasError()) { // Use getter
-            throw RuntimeException("Node error sending makeMove tx: ${ethSendTx.error.message}") // Access error message
-        }
-        val txHash = ethSendTx.transactionHash // Use getter
-        if (txHash == null) {
-            throw RuntimeException("makeMove Tx sent but no hash received.")
-        }
-        println("Transaction sent. Tx Hash: $txHash. Waiting for receipt...")
-
-        // Step 2: Wait for Receipt (remains the same)
-        val receiptProcessor = PollingTransactionReceiptProcessor(web3j, TransactionManager.DEFAULT_POLLING_FREQUENCY, TransactionManager.DEFAULT_POLLING_ATTEMPTS_PER_TX_HASH)
-        val txReceipt: TransactionReceipt = try {
-            receiptProcessor.waitForTransactionReceipt(txHash)
-        } catch (e: Exception) { throw RuntimeException("Failed to get receipt for makeMove $txHash: ${e.message}", e) }
-
-        // Step 3: Process Receipt (use getters)
-        val status = txReceipt.getStatus()
-        println("Receipt received for makeMove. Status: $status. Block: ${txReceipt.getBlockNumber()}")
-        if (status != "0x1") throw RuntimeException("makeMove tx failed on chain (Status: $status)")
-
-        println("makeMove Transaction successful!")
-        return@withContext txHash
-    }
-
-    // --- View Functions (getBoardState, isGameEnded etc. remain the same) ---
-//    suspend fun getBoardState(): List<List<String>>? { /* ... as before ... */ }
-//    suspend fun isGameEnded(): Boolean? { /* ... as before ... */ }
-
-//} // End Blockchain object
-    /** Gets the board state from the current game contract using manual encoding. */
-    suspend fun getBoardState(): List<List<String>>? = withContext(Dispatchers.IO) {
-        val gameAddr = currentGameContractAddress ?: return@withContext null
-        // Define function with correct output type for manual decoding
-        val function = Function("getBoardState", emptyList(),
-            listOf(object : TypeReference<DynamicArray<DynamicArray<Address>>>() {})
-        )
-        val encodedFunction = FunctionEncoder.encode(function)
-
-        println("Calling getBoardState view function on $gameAddr...")
-        return@withContext try {
-            val response = web3j.ethCall(
-                Transaction.createEthCallTransaction(credentialsPlayer1.address, gameAddr, encodedFunction),
-                DefaultBlockParameterName.LATEST
-            ).send()
-            if (response.hasError() || response.result == null || response.result == "0x") {
-                println("View call getBoardState failed: ${response.error?.message}"); null
-            } else {
-                val decodedResult = FunctionReturnDecoder.decode(response.result, function.outputParameters)
-                if (decodedResult.isNotEmpty()) {
-                    val outerArray = decodedResult[0] as DynamicArray<*>
-                    outerArray.value.map { row -> (row as DynamicArray<*>).value.map { (it as Address).value } }
-                } else { null }
+        // parse event
+        val evt = Event("GameCreated", listOf(TypeReference.create(Address::class.java)))
+        val sig = EventEncoder.encode(evt)
+        rec.logs.forEach { log ->
+            if (log.topics.firstOrNull() == sig) {
+                val addrHex = log.topics[1].removePrefix("0x").takeLast(40)
+                val newAddr = "0x$addrHex"
+                setCurrentGameAddress(newAddr)
+                return@withContext newAddr
             }
-        } catch (e: Exception) { println("Exc calling getBoardState: ${e.message}"); null }
+        }
+        null
     }
 
-    // Add other view functions manually if needed (isGameEnded, getLastPlayer, getWinner)
+    suspend fun makeMove(player: Credentials, row: Int, col: Int): String = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+        val fn = Function("makeMove", listOf(Uint8(row.toLong()), Uint8(col.toLong())), emptyList())
+        val data = FunctionEncoder.encode(fn)
+        val hash = sendTransaction(player, game, data)
+        waitForReceipt(hash) ?: error("No receipt move")
+        hash
+    }
 
-} // End Blockchain object
+    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+        val fn = Function(
+            "getBoardState", emptyList(), listOf(
+            object :
+                TypeReference<org.web3j.abi.datatypes.DynamicArray<org.web3j.abi.datatypes.DynamicArray<Address>>>() {}
+        ))
+        val raw = web3j.ethCall(
+            Transaction.createEthCallTransaction(
+                credentialsPlayer1.address,
+                game,
+                FunctionEncoder.encode(fn)
+            ), DefaultBlockParameterName.LATEST
+        ).send().result
+        println("DEBUG board RPC: $raw")
+        val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+        val outer = decoded[0].value as List<*>
+        outer.map { row -> (row as List<*>).map { (it as Address).value } }
+    }
+}

@@ -35,13 +35,15 @@ dependencies {
     // (in a separate module for demo project and in testMain).
     // With compose.desktop.common you will also lose @Preview functionality
     implementation(compose.desktop.currentOs)
+    implementation("io.github.cdimascio:dotenv-kotlin:6.4.1") // Or check for the latest version
+
     implementation("org.web3j:core:5.0.0") // Web3j for Ethereum interaction
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }
 
 compose.desktop {
     application {
-        mainClass = "MainKt"
+        mainClass = "vision.salient.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)

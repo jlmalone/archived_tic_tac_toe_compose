@@ -1,4 +1,3 @@
-// src/main/kotlin/vision/salient/TicTacToeScreen.kt
 package vision.salient
 
 import androidx.compose.foundation.BorderStroke
@@ -12,229 +11,179 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun TicTacToeScreen() {
-    var isLoading by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    val coroutineScope = rememberCoroutineScope()
+    var status by remember { mutableStateOf<String?>(null) }
+    var factoryAddr by remember { mutableStateOf<String?>(null) }
+    var gameAddr by remember { mutableStateOf<String?>(null) }
+    var board by remember { mutableStateOf<List<List<String>>?>(null) }
+    var rowInput by remember { mutableStateOf("0") }
+    var colInput by remember { mutableStateOf("0") }
+    val scope = rememberCoroutineScope()
 
-    // Observe addresses directly from Blockchain state
-    val factoryAddress by remember { derivedStateOf { Blockchain.getFactoryAddress() } }
-    val gameAddress by remember { derivedStateOf { Blockchain.getCurrentGameAddress() } }
-
-    // Local state for manual address input
-    var manualFactoryInput by remember { mutableStateOf(factoryAddress ?: "") }
-    var manualGameInput by remember { mutableStateOf(gameAddress ?: "") }
-
-    // State for the game board fetched from blockchain
-    var boardState by remember { mutableStateOf<List<List<String>>?>(null) }
-    // State for whose turn it is (maybe derived from lastPlayer + game rules)
-    var currentPlayerTurn by remember { mutableStateOf<Int?>(null) } // 1 or 2
-    var gameStatus by remember { mutableStateOf<String?>(null) } // e.g., "Player 1 Wins!", "Draw!", "Player 2's Turn"
-
-
-    // Function to fetch full game state (board, turn, end status)
-    suspend fun fetchAndUpdateGameState() {
-        val addr = Blockchain.getCurrentGameAddress() ?: return // Need game address
-        isLoading = true
-        statusMessage = "Fetching game state from $addr..."
-        try {
-            // Fetch all relevant states in parallel or sequence
-            val fetchedBoard = Blockchain.getBoardState()
-            val isEnded = Blockchain.isGameEnded() // Assuming you add this function
-            // val lastPlayer = Blockchain.getLastPlayer() // Add this
-            // val winner = Blockchain.getWinner() // Add this
-
-            if (fetchedBoard != null) {
-                boardState = fetchedBoard
-                // Determine current player based on lastPlayer (needs game logic)
-                // Determine gameStatus based on isEnded and winner
-                statusMessage = "Game state updated."
-            } else {
-                statusMessage = "Failed to fetch board state."
+    // Whenever we get a new game address, immediately load its (empty) board
+    LaunchedEffect(gameAddr) {
+        if (!gameAddr.isNullOrBlank()) {
+            status = "Loading board…"
+            board = try {
+                withContext(Dispatchers.IO) { Blockchain.getBoardState() }
+            } catch (e: Exception) {
+                null
             }
-        } catch (e: Exception) {
-            statusMessage = "Error fetching game state: ${e.message}"
-        } finally {
-            isLoading = false
+            status = if (board != null) "Board loaded" else "Failed to load board"
         }
     }
-
-
-    // Fetch game state whenever the gameAddress changes
-    LaunchedEffect(gameAddress) {
-        if (gameAddress != null) {
-            fetchAndUpdateGameState()
-        } else {
-            // Reset local game state if gameAddress becomes null
-            boardState = null
-            currentPlayerTurn = null
-            gameStatus = null
-        }
-    }
-
 
     Column(
-        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+        modifier = Modifier
+            .padding(16.dp)
+            .fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Tic-Tac-Toe Web3 (Manual ABI)", style = MaterialTheme.typography.h5)
-        Spacer(modifier = Modifier.height(16.dp))
+        Text("Tic-Tac-Toe Web3", style = MaterialTheme.typography.h5)
+        Spacer(Modifier.height(12.dp))
 
-        // --- Factory Configuration ---
-        if (factoryAddress == null) {
-            Text("Set Deployed Factory Address:")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = manualFactoryInput,
-                    onValueChange = { manualFactoryInput = it },
-                    label = { Text("Factory Address") },
-                    modifier = Modifier.weight(1f), singleLine = true
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = {
-                    if (ethers.isAddress(manualFactoryInput)) {
-                        Blockchain.setFactoryAddress(manualFactoryInput)
-                        statusMessage = "Factory address set."
-                    } else { statusMessage = "Invalid address format." }
-                }, enabled = manualFactoryInput.isNotBlank()) { Text("Set") }
+        Button(onClick = {
+            scope.launch {
+                Blockchain.printDerivedAddresses()
+                status = "Addresses printed"
             }
-        } else {
-            Text("Using Factory: $factoryAddress")
-            // --- Game Creation ---
-            if (gameAddress == null) {
-                Button(
-                    onClick = {
-                        if (!isLoading) {
-                            coroutineScope.launch(Dispatchers.IO) {
-                                isLoading = true
-                                statusMessage = "Requesting new game..."
-                                try {
-                                    val newGameAddr = Blockchain.createGameByPlayer1()
-                                    if (newGameAddr != null) {
-                                        statusMessage = "New game started: $newGameAddr"
-                                        // setCurrentGameAddress is called internally if event parsed
-                                    } else {
-                                        statusMessage = "Game created (tx succeeded), but event parsing failed to find address."
-                                    }
-                                } catch (e: Exception) {
-                                    statusMessage = "Game creation failed: ${e.message}"
-                                } finally { isLoading = false }
+        }) {
+            Text("Print Addresses")
+        }
+        Spacer(Modifier.height(8.dp))
+
+        Button(onClick = {
+            factoryAddr = Blockchain.getFactoryAddress()
+            status = "Factory: $factoryAddr"
+        }) {
+            Text("Load Factory")
+        }
+        Spacer(Modifier.height(8.dp))
+
+        Button(onClick = {
+            scope.launch {
+                status = "Creating game…"
+                val addr = try {
+                    withContext(Dispatchers.IO) { Blockchain.createGameByPlayer1() }
+                } catch (e: Exception) {
+                    null
+                }
+                if (addr != null) {
+                    gameAddr = addr
+                    status = "Game: $addr"
+                } else {
+                    status = "Create game failed"
+                }
+            }
+        }, enabled = !factoryAddr.isNullOrBlank()) {
+            Text("Create Game (P1)")
+        }
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = gameAddr ?: "",
+            onValueChange = { gameAddr = it },
+            label = { Text("Game Address") },
+            singleLine = true
+        )
+        Spacer(Modifier.height(4.dp))
+        Button(onClick = {
+            Blockchain.setCurrentGameAddress(gameAddr)
+            status = "Joined $gameAddr"
+        }, enabled = !gameAddr.isNullOrBlank()) {
+            Text("Join Game")
+        }
+        Spacer(Modifier.height(16.dp))
+
+        // Inputs + Make Move button
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = rowInput,
+                onValueChange = { rowInput = it.filter { it.isDigit() } },
+                label = { Text("Row") },
+                modifier = Modifier.width(80.dp),
+                singleLine = true
+            )
+            Spacer(Modifier.width(8.dp))
+            OutlinedTextField(
+                value = colInput,
+                onValueChange = { colInput = it.filter { it.isDigit() } },
+                label = { Text("Col") },
+                modifier = Modifier.width(80.dp),
+                singleLine = true
+            )
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = {
+                scope.launch {
+                    val r = rowInput.toIntOrNull() ?: -1
+                    val c = colInput.toIntOrNull() ?: -1
+                    if (r in 0..2 && c in 0..2 && !gameAddr.isNullOrBlank()) {
+                        status = "Submitting move ($r,$c)…"
+                        val tx = try {
+                            withContext(Dispatchers.IO) {
+                                Blockchain.makeMove(Blockchain.credentialsPlayer1, r, c)
+                            }
+                        } catch (e: Exception) {
+                            null
+                        }
+                        if (tx != null) {
+                            status = "Move sent: $tx"
+                            // refresh board immediately
+                            board = try {
+                                withContext(Dispatchers.IO) { Blockchain.getBoardState() }
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else {
+                            status = "Move failed"
+                        }
+                    } else {
+                        status = "Invalid cell or no game"
+                    }
+                }
+            }, enabled = !gameAddr.isNullOrBlank()) {
+                Text("Make Move")
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+
+        // Render the 3×3 grid
+        board?.let { rows ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                rows.forEach { row ->
+                    Row {
+                        row.forEach { owner ->
+                            val mark = when (owner.lowercase()) {
+                                Blockchain.credentialsPlayer1.address.lowercase() -> "X"
+                                Blockchain.credentialsPlayer2.address.lowercase() -> "O"
+                                else -> ""
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .size(60.dp)
+                                    .padding(2.dp),
+                                border = BorderStroke(1.dp, Color.Gray)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(mark, fontSize = 20.sp)
+                                }
                             }
                         }
-                    },
-                    enabled = !isLoading
-                ) {
-                    Text(if (isLoading && statusMessage?.startsWith("Requesting") == true) "Creating..." else "Create New Game (P1)")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                // Manual Join Game
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(value = manualGameInput, onValueChange = { manualGameInput=it }, label={Text("Join Existing Game Addr")}, modifier=Modifier.weight(1f), singleLine = true)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(onClick = { if(ethers.isAddress(manualGameInput)) Blockchain.setCurrentGameAddress(manualGameInput) else statusMessage="Invalid address" }, enabled = manualGameInput.isNotBlank()) { Text("Join") }
-                }
-            }
-        }
-
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // --- Active Game Area ---
-        if (gameAddress != null) {
-            Text("Current Game: $gameAddress", fontSize = 12.sp)
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Display the actual Blockchain-connected board
-            BlockchainBoardDisplay(
-                boardState = boardState, // Pass fetched state
-                isLoading = isLoading,
-                onMove = { row, col ->
-                    // Determine acting player based on UI logic (e.g., toggle button)
-                    val playerToAct = 1 // TODO: Replace with actual logic (e.g., check lastPlayer)
-                    coroutineScope.launch(Dispatchers.IO) {
-                        isLoading = true
-                        statusMessage = "Making move ($row, $col) as Player $playerToAct..."
-                        try {
-                            val txHash = Blockchain.makeMove(playerToAct, row, col)
-                            statusMessage = "Move sent ($txHash). Refreshing board..."
-                            // Wait a bit for block confirmation then refresh
-                            kotlinx.coroutines.delay(5000) // Crude delay
-                            fetchAndUpdateGameState()
-                        } catch (e: Exception) {
-                            statusMessage = "Error making move: ${e.message}"
-                            isLoading = false // Reset loading only on error here
-                        }
-                        // isLoading will be reset by fetchAndUpdateGameState on success
                     }
                 }
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = { coroutineScope.launch { fetchAndUpdateGameState() } }, enabled=!isLoading) {
-                Text("Refresh Game State")
             }
-            // TODO: Display gameStatus (whose turn, winner, draw) based on fetched state
-            if(gameStatus != null) {
-                Text(gameStatus!!)
-            }
-
-        } else {
-            Text("No active game.")
         }
 
-
-        Spacer(modifier = Modifier.height(24.dp))
-        // --- Status Display ---
-        if (statusMessage != null) {
-            Text("Status: $statusMessage")
+        // Footer status
+        status?.let {
+            Spacer(Modifier.height(12.dp))
+            Text("Status: $it", modifier = Modifier.padding(8.dp))
         }
     }
 }
-
-// --- Board Display Composable ---
-@Composable
-fun BlockchainBoardDisplay(
-    boardState: List<List<String>>?,
-    isLoading: Boolean,
-    onMove: (row: Int, col: Int) -> Unit
-) {
-    if (boardState == null) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Loading board state...")
-        }
-        return
-    }
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        (0..2).forEach { i ->
-            Row {
-                (0..2).forEach { j ->
-                    val cellOwner = boardState[i][j]
-                    val marker = when (cellOwner.lowercase()) {
-                        Blockchain.credentialsPlayer1.address.lowercase() -> "X"
-                        Blockchain.credentialsPlayer2.address.lowercase() -> "O"
-                        "0x0000000000000000000000000000000000000000" -> ""
-                        else -> "?" // Unknown player
-                    }
-                    Button(
-                        modifier = Modifier.size(80.dp).padding(4.dp),
-                        onClick = { if (!isLoading && marker == "") onMove(i, j) },
-                        enabled = !isLoading && marker == "", // Only allow moves on empty cells when not loading
-                        border = BorderStroke(1.dp, Color.Gray)
-                    ) {
-                        Text(marker, fontSize = 24.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-
 // Helper object (already provided)
 object ethers {
     fun isAddress(s: String): Boolean {

@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+
+# -- THIS SCRIPT MIGHT NOT BE NECESSARY BECAUSE THE web3j seems very fragile
+# -- we need to consolidate some of these constants with .env file so we dont have breaks. Single source of truth. Robust--
+
 # --- Configuration ---
 KOTLIN_PROJECT_DIR="/Users/josephmalone/IdeaProjects/tic_tac_toe_compose"
 HARDHAT_PROJECT_DIR="/Users/josephmalone/tic-tac-toe-smart-contract"

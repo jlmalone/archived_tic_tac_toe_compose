@@ -18,6 +18,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
 
+const val ZERO_ADDRESS ="0x0000000000000000000000000000000000000000"
+
 @Composable
 fun TicTacToeScreen() {
     // ───────────────────────── UI state ─────────────────────────
@@ -36,6 +38,7 @@ fun TicTacToeScreen() {
     }
 
     val scope = rememberCoroutineScope()
+
 
     // refresh board when gameAddr changes
     LaunchedEffect(gameAddr) {
@@ -150,6 +153,48 @@ fun TicTacToeScreen() {
                 singleLine = true
             )
             Spacer(Modifier.width(6.dp))
+
+
+//
+//
+//            Button(
+//                onClick = {
+//                    scope.launch {
+//                        val r = rowInput.toIntOrNull() ?: -1
+//                        val c = colInput.toIntOrNull() ?: -1
+//                        if (r !in 0..2 || c !in 0..2) {
+//                            status = "Bad cell"
+//                            return@launch
+//                        }
+//                        status = "Submitting move…"
+//                        try {
+//                            Blockchain.makeMove(currentPlayerIdx, r, c)
+//                            board = Blockchain.getBoardState()
+//                            // ** new **
+//                            val ended = Blockchain.readBool("gameEnded")
+//                            if (ended) {
+//                                val w = Blockchain.readAddress("winner")
+//                                status = "Game over – winner: ${Blockchain.emojiForAddress(w)}"
+//                            } else {
+//                                status = "Move OK"
+//                            }
+//                        }  catch (e: Exception) {
+//                                // ensure non-nullable
+//                                val msg = e.localizedMessage ?: e.message ?: "Unknown error"
+//                                status = when {
+//                                    msg.contains("revert", ignoreCase = true)     -> "Invalid move: out of turn or cell taken"
+//                                    msg.contains("format 0x", ignoreCase = true)  -> "Contract returned invalid data"
+//                                    else                                          -> msg
+//                                }
+//                            }
+//                    }
+//                },
+//                enabled = !gameAddr.isNullOrBlank()
+//            ) {
+//                Text("Make Move")
+//            }
+
+
             Button(
                 onClick = {
                     scope.launch {
@@ -159,18 +204,122 @@ fun TicTacToeScreen() {
                             status = "Bad cell"
                             return@launch
                         }
+
                         status = "Submitting move…"
                         try {
+                            // ── 1. send tx
                             Blockchain.makeMove(currentPlayerIdx, r, c)
+
+                            // ── 2. always refresh board
                             board = Blockchain.getBoardState()
-                            status = "Move OK"
+
+                            // ── 3. game over?
+                            val ended  = Blockchain.readBool("gameEnded")
+                            val winner = Blockchain.readAddress("winner")
+
+                            status = if (ended) {
+                                when (winner.lowercase()) {
+                                    ZERO_ADDRESS                         -> "Draw!"
+                                    Blockchain.getPlayerCredentials(currentPlayerIdx)
+                                        .address.lowercase()            -> "You won!"
+                                    Blockchain.getPlayerCredentials(0)
+                                        .address.lowercase()            -> "Player 1 wins!"
+                                    Blockchain.getPlayerCredentials(1)
+                                        .address.lowercase()            -> "Player 2 wins!"
+                                    else                                -> "Game over"
+                                }
+                            } else {
+                                "Move OK"
+                            }
                         } catch (e: Exception) {
-                            status = e.localizedMessage
+                            // Log error to console for debugging
+                            println("Error: ${e.localizedMessage ?: e.message}")
+
+                            // Handle known error messages gracefully
+                            val msg = e.localizedMessage ?: e.message ?: "Unknown error"
+                            status = when {
+                                msg.contains("revert",  true) -> "Invalid move: out of turn / cell taken"
+                                msg.contains("0x",      true) -> "Contract returned invalid data"
+                                else                          -> msg
+                            }
                         }
                     }
                 },
                 enabled = !gameAddr.isNullOrBlank()
             ) { Text("Make Move") }
+
+//            Button(
+//                onClick = {
+//                    scope.launch {
+//                        val r = rowInput.toIntOrNull() ?: -1
+//                        val c = colInput.toIntOrNull() ?: -1
+//                        if (r !in 0..2 || c !in 0..2) {
+//                            status = "Bad cell"
+//                            return@launch
+//                        }
+//                        status = "Submitting move…"
+//                        try {
+//                            // submit
+//                            Blockchain.makeMove(currentPlayerIdx, r, c)
+//                            // refresh
+//                            board = Blockchain.getBoardState()
+//
+//                            // check for end-of-game
+//                            val ended  = Blockchain.readBool("gameEnded")
+//                            val winner = Blockchain.readAddress("winner")?.lowercase()
+//
+//                            status = if (ended) {
+//                                when (winner) {
+//                                    null,
+//                                    ZERO_ADDRESS -> "Draw!"
+//                                    Blockchain.getPlayerCredentials(currentPlayerIdx).address.lowercase() ->
+//                                        "You won!"
+//                                    else ->
+//                                        "Player ${if (winner == Blockchain.getPlayerCredentials(0).address.lowercase()) "1" else "2"} wins!"
+//                                }
+//                            } else {
+//                                "Move OK"
+//                            }
+//                        } catch (e: Exception) {
+//                            // map known error substrings to friendly messages
+//                            val msg = e.localizedMessage ?: e.message ?: "Unknown error"
+//                            status = when {
+//                                msg.contains("revert",    ignoreCase = true) ->
+//                                    "Invalid move: out of turn or cell taken"
+//                                msg.contains("format 0x", ignoreCase = true) ->
+//                                    "Contract returned invalid data"
+//                                else                                       ->
+//                                    msg
+//                            }
+//                        }
+//                    }
+//                },
+//                enabled = !gameAddr.isNullOrBlank()
+//            ) {
+//                Text("Make Move")
+//            }
+//
+//            Button(
+//                onClick = {
+//                    scope.launch {
+//                        val r = rowInput.toIntOrNull() ?: -1
+//                        val c = colInput.toIntOrNull() ?: -1
+//                        if (r !in 0..2 || c !in 0..2) {
+//                            status = "Bad cell"
+//                            return@launch
+//                        }
+//                        status = "Submitting move…"
+//                        try {
+//                            Blockchain.makeMove(currentPlayerIdx, r, c)
+//                            board = Blockchain.getBoardState()
+//                            status = "Move OK"
+//                        } catch (e: Exception) {
+//                            status = e.localizedMessage
+//                        }
+//                    }
+//                },
+//                enabled = !gameAddr.isNullOrBlank()
+//            ) { Text("Make Move") }
         }
         Spacer(Modifier.height(16.dp))
 
@@ -194,12 +343,110 @@ fun TicTacToeScreen() {
             }
         }
 
+
+
         // Status footer
         status?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, modifier = Modifier.padding(4.dp))
         }
+        Spacer(Modifier.height(16.dp))
+        Text("Debug Calls", style = MaterialTheme.typography.h6)
+        Spacer(Modifier.height(8.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+
+
+            // ✅ correct
+            Button(
+                onClick = {
+                    scope.launch {
+                        status = "Reading board…"
+                        board = try {
+                            Blockchain.getBoardState()
+                        } catch (e: Exception) {
+                            println("Board error: ${e.message}")
+                            null
+                        }
+                        status = board?.let { "Board refreshed" } ?: "Board fetch failed"
+                    }
+                }
+            ) {
+                Text("🔄 Refresh Board")
+            }
+
+            Button(onClick = {
+                scope.launch {
+                    status = try {
+                        "Ended? ${Blockchain.readBool("gameEnded")}"
+                    } catch (e: Exception) {
+                        "Error: ${e.message}"
+                    }
+                }
+            }) {
+                Text("🏁 gameEnded")
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(onClick = {
+                scope.launch {
+                    status = try {
+                        "Last: ${Blockchain.readAddress("lastPlayer")}"
+                    } catch (e: Exception) {
+                        "Error: ${e.message}"
+                    }
+                }
+            }) {
+                Text("👤 lastPlayer")
+            }
+
+            Button(onClick = {
+                scope.launch {
+                    status = try {
+                        "Winner: ${Blockchain.readAddress("winner")}"
+                    } catch (e: Exception) {
+                        "Error: ${e.message}"
+                    }
+                }
+            }) {
+                Text("🏆 winner")
+            }
+
+            // NEW BUTTONS
+            Button(onClick = {
+                scope.launch {
+                    status = try {
+                        val addr = Blockchain.getCurrentGameAddress() ?: "<none>"
+                        "Current game address: $addr"
+                    } catch (e: Exception) {
+                        "Error: ${e.message}"
+                    }
+                }
+            }) {
+                Text("📍 currentGame")
+            }
+
+            Button(onClick = {
+                scope.launch {
+                    status = try {
+                        val factory = Blockchain.getFactoryAddress() ?: "<none>"
+                        "Factory address: $factory"
+                    } catch (e: Exception) {
+                        "Error: ${e.message}"
+                    }
+                }
+            }) {
+                Text("🏭 factoryAddr")
+            }
+        }
     }
+
+
+
+
 }
 
 /* deterministic emoji palette (same as Blockchain.emojiForAddress uses) */

@@ -1,18 +1,32 @@
+// === FILE: settings.gradle.kts ===
+
 pluginManagement {
     repositories {
-        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
         google()
-        gradlePluginPortal()
         mavenCentral()
+        gradlePluginPortal()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 
     plugins {
-        kotlin("jvm").version(extra["kotlin.version"] as String)
-        id("org.jetbrains.compose").version(extra["compose.version"] as String)
-        id("org.jetbrains.kotlin.plugin.compose").version(extra["kotlin.version"] as String)
+        // Ensure these versions are defined in gradle.properties
+        val kotlinVersion = settings.extra["kotlin.version"] as String
+        val composeVersion = settings.extra["compose.version"] as String
+
+        // Core KMP and required plugins
+        kotlin("multiplatform").version(kotlinVersion)
+        kotlin("plugin.serialization").version(kotlinVersion)
+        id("org.jetbrains.kotlin.plugin.compose").version(kotlinVersion)
+        id("org.jetbrains.compose").version(composeVersion)
     }
 }
 
-
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+    }
+}
 
 rootProject.name = "tic_tac_toe_compose"

@@ -9,6 +9,9 @@ import kotlinx.serialization.json.Json
 import org.web3j.abi.EventEncoder
 import org.web3j.abi.FunctionEncoder
 import org.web3j.abi.FunctionReturnDecoder
+import org.web3j.protocol.core.DefaultBlockParameterName
+import org.web3j.protocol.core.methods.request.Transaction
+import org.web3j.abi.datatypes.Bool
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
 import org.web3j.abi.datatypes.Event
@@ -18,8 +21,6 @@ import org.web3j.crypto.Credentials
 import org.web3j.crypto.RawTransaction
 import org.web3j.crypto.TransactionEncoder
 import org.web3j.protocol.Web3j
-import org.web3j.protocol.core.DefaultBlockParameterName
-import org.web3j.protocol.core.methods.request.Transaction
 import org.web3j.protocol.core.methods.response.TransactionReceipt
 import org.web3j.protocol.http.HttpService
 import org.web3j.utils.Numeric
@@ -108,8 +109,45 @@ object Blockchain {
         currentGameAddress = addr
     }
 
+    /** Call a zero-arg function that returns a single `bool`. */
+    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+        val fn = Function(
+            fnName,
+            emptyList(),
+            listOf(object : TypeReference<Bool>() {})
+        )
+        val callData = FunctionEncoder.encode(fn)
+        val raw = web3j.ethCall(
+            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
+            DefaultBlockParameterName.LATEST
+        ).send().value
+        println("DEBUG call $fnName → $raw")
+        FunctionReturnDecoder.decode(raw, fn.outputParameters)
+            .firstOrNull()
+            .let { (it as? Bool)?.value }
+            ?: false
+    }
 
-
+    /** Call a zero-arg function that returns a single `address`. */
+    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+        val fn = Function(
+            fnName,
+            emptyList(),
+            listOf(object : TypeReference<Address>() {})
+        )
+        val callData = FunctionEncoder.encode(fn)
+        val raw = web3j.ethCall(
+            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
+            DefaultBlockParameterName.LATEST
+        ).send().value
+        println("DEBUG call $fnName → $raw")
+        FunctionReturnDecoder.decode(raw, fn.outputParameters)
+            .firstOrNull()
+            .let { (it as? Address)?.value?.lowercase() }
+            ?: "<none>"
+    }
 
     /** ----------------------------------------------------------------
      *  Board decoding helper.

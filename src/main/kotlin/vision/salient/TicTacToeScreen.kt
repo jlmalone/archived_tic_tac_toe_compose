@@ -22,6 +22,8 @@ const val ZERO_ADDRESS ="0x0000000000000000000000000000000000000000"
 
 @Composable
 fun TicTacToeScreen() {
+    var isLoading by remember { mutableStateOf(false) }
+
     // ───────────────────────── UI state ─────────────────────────
     var status           by remember { mutableStateOf<String?>(null) }
     var factoryAddr      by remember { mutableStateOf<String?>(null) }
@@ -80,16 +82,44 @@ fun TicTacToeScreen() {
 
         // Deploy script trigger (only when LOCAL)
         if (Blockchain.isLocal) {
-            Button(onClick = {
-                scope.launch {
-                    status = "Deploying…"
-                    val ok = Blockchain.runDeploy()//File("../tic-tac-toe-smart-contract")
+            //TODO if next time we hang or get errors we revert to this
+//            Button(onClick = {
+//                scope.launch {
+//                    status = "Deploying…"
+//                    val ok = Blockchain.runDeploy()//File("../tic-tac-toe-smart-contract")
+//
+////                    val ok = Blockchain.runLocalDeploy(File("../tic-tac-toe-smart-contract"))
+//                    status = if (ok) "Deploy OK – Load Factory" else "Deploy failed 💥"
+//                }
+//            }) { Text("Deploy (npx tsx)") }
+//
 
-//                    val ok = Blockchain.runLocalDeploy(File("../tic-tac-toe-smart-contract"))
-                    status = if (ok) "Deploy OK – Load Factory" else "Deploy failed 💥"
+            Button(
+                onClick = {
+                    scope.launch {
+                        isLoading = true
+                        status    = "Deploying…"
+                        val ok    = Blockchain.runDeploy()
+                        status    = if (ok) "Deploy OK – Load Factory" else "Deploy failed 💥"
+                        isLoading = false
+                    }
+                },
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    // small spinner inside the button
+                    CircularProgressIndicator(
+                        modifier     = Modifier.size(16.dp),
+                        strokeWidth  = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Deploying…")
+                } else {
+                    Text("Deploy (npx tsx)")
                 }
-            }) { Text("Deploy (npx tsx)") }
+            }
             Spacer(Modifier.height(8.dp))
+
         }
 
         // Load factory

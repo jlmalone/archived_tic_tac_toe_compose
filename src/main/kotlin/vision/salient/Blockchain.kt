@@ -14,6 +14,7 @@ import org.web3j.protocol.core.methods.request.Transaction
 import org.web3j.abi.datatypes.Bool
 import org.web3j.abi.TypeReference
 import org.web3j.abi.datatypes.Address
+import org.web3j.abi.datatypes.DynamicArray
 import org.web3j.abi.datatypes.Event
 import org.web3j.abi.datatypes.Function
 import org.web3j.abi.datatypes.generated.Uint8
@@ -109,104 +110,104 @@ object Blockchain {
         currentGameAddress = addr
     }
 
-    /** Call a zero-arg function that returns a single `bool`. */
-    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
-        val fn = Function(
-            fnName,
-            emptyList(),
-            listOf(object : TypeReference<Bool>() {})
-        )
-        val callData = FunctionEncoder.encode(fn)
-        val raw = web3j.ethCall(
-            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
-            DefaultBlockParameterName.LATEST
-        ).send().value
-        println("DEBUG call $fnName → $raw")
-        FunctionReturnDecoder.decode(raw, fn.outputParameters)
-            .firstOrNull()
-            .let { (it as? Bool)?.value }
-            ?: false
-    }
+//    /** Call a zero-arg function that returns a single `bool`. */
+//    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
+//        val game = currentGameAddress ?: error("No game set")
+//        val fn = Function(
+//            fnName,
+//            emptyList(),
+//            listOf(object : TypeReference<Bool>() {})
+//        )
+//        val callData = FunctionEncoder.encode(fn)
+//        val raw = web3j.ethCall(
+//            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
+//            DefaultBlockParameterName.LATEST
+//        ).send().value
+//        println("DEBUG call $fnName → $raw")
+//        FunctionReturnDecoder.decode(raw, fn.outputParameters)
+//            .firstOrNull()
+//            .let { (it as? Bool)?.value }
+//            ?: false
+//    }
+//
+//    /** Call a zero-arg function that returns a single `address`. */
+//    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
+//        val game = currentGameAddress ?: error("No game set")
+//        val fn = Function(
+//            fnName,
+//            emptyList(),
+//            listOf(object : TypeReference<Address>() {})
+//        )
+//        val callData = FunctionEncoder.encode(fn)
+//        val raw = web3j.ethCall(
+//            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
+//            DefaultBlockParameterName.LATEST
+//        ).send().value
+//        println("DEBUG call $fnName → $raw")
+//        FunctionReturnDecoder.decode(raw, fn.outputParameters)
+//            .firstOrNull()
+//            .let { (it as? Address)?.value?.lowercase() }
+//            ?: "<none>"
+//    }
 
-    /** Call a zero-arg function that returns a single `address`. */
-    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
-        val fn = Function(
-            fnName,
-            emptyList(),
-            listOf(object : TypeReference<Address>() {})
-        )
-        val callData = FunctionEncoder.encode(fn)
-        val raw = web3j.ethCall(
-            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
-            DefaultBlockParameterName.LATEST
-        ).send().value
-        println("DEBUG call $fnName → $raw")
-        FunctionReturnDecoder.decode(raw, fn.outputParameters)
-            .firstOrNull()
-            .let { (it as? Address)?.value?.lowercase() }
-            ?: "<none>"
-    }
-
-    /** ----------------------------------------------------------------
-     *  Board decoding helper.
-     *  Hard-hat build returns a static address[3][3] (9×20-byte words).
-     *  Web3j cannot reflect `StaticArray3<StaticArray3<Address>>`, so:
-     *    ① try the canonical decoder (works if contract ever returns a
-     *       dynamic [][] array);
-     *    ② fallback → manual slice-up for the static 3×3 matrix.
-     *  Returns rows = listOf( row0, row1, row2 )  where each row is a
-     *  list of owner-addresses as lowercase hex strings.
-     *  ---------------------------------------------------------------- */
-    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
-
-        // ①  attempt dynamic [][] decode
-        val fnDyn = Function(
-            "getBoardState", emptyList(),
-            listOf(object : TypeReference<
-                    org.web3j.abi.datatypes.DynamicArray<
-                            org.web3j.abi.datatypes.DynamicArray<Address>>>() {})
-        )
-        val callData = FunctionEncoder.encode(fnDyn)
-
-        val raw = web3j.ethCall(
-            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
-            DefaultBlockParameterName.LATEST
-        ).send().result
-        println("DEBUG RPC → $raw")
-
-        try {
-            val decoded = FunctionReturnDecoder.decode(raw, fnDyn.outputParameters)
-            val outer   = decoded[0].value as List<*>
-            return@withContext outer.map { row ->
-                (row as List<*>).map { (it as Address).value.lowercase() }
-            }
-        } catch (e: Exception) {
-            // ②  static address[3][3] fallback
-            println("…dynamic decode failed → static 3×3 fallback (${e.message})")
-            if (raw == "0x") error("Contract returned empty data")
-
-            /*  Solidity packs a static array directly (no head/tail):
-                   slot0-8 = 9 × 32-byte words
-                     each word: 12 bytes padding | 20 bytes address
-                 -> take the last 40 hex chars of each 64-char word       */
-            val addrs = buildList(9) {            // flatten first
-                for (i in 0 until 9) {
-                    val word   = raw.drop(2).substring(i * 64, i * 64 + 64)
-                    val addr40 = word.takeLast(40)
-                    add("0x$addr40".lowercase())
-                }
-            }
-            // chunk into 3 rows
-            return@withContext listOf(
-                addrs.subList(0, 3),
-                addrs.subList(3, 6),
-                addrs.subList(6, 9)
-            )
-        }
-    }
+//    /** ----------------------------------------------------------------
+//     *  Board decoding helper.
+//     *  Hard-hat build returns a static address[3][3] (9×20-byte words).
+//     *  Web3j cannot reflect `StaticArray3<StaticArray3<Address>>`, so:
+//     *    ① try the canonical decoder (works if contract ever returns a
+//     *       dynamic [][] array);
+//     *    ② fallback → manual slice-up for the static 3×3 matrix.
+//     *  Returns rows = listOf( row0, row1, row2 )  where each row is a
+//     *  list of owner-addresses as lowercase hex strings.
+//     *  ---------------------------------------------------------------- */
+//    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
+//        val game = currentGameAddress ?: error("No game set")
+//
+//        // ①  attempt dynamic [][] decode
+//        val fnDyn = Function(
+//            "getBoardState", emptyList(),
+//            listOf(object : TypeReference<
+//                    org.web3j.abi.datatypes.DynamicArray<
+//                            org.web3j.abi.datatypes.DynamicArray<Address>>>() {})
+//        )
+//        val callData = FunctionEncoder.encode(fnDyn)
+//
+//        val raw = web3j.ethCall(
+//            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
+//            DefaultBlockParameterName.LATEST
+//        ).send().result
+//        println("DEBUG RPC → $raw")
+//
+//        try {
+//            val decoded = FunctionReturnDecoder.decode(raw, fnDyn.outputParameters)
+//            val outer   = decoded[0].value as List<*>
+//            return@withContext outer.map { row ->
+//                (row as List<*>).map { (it as Address).value.lowercase() }
+//            }
+//        } catch (e: Exception) {
+//            // ②  static address[3][3] fallback
+//            println("…dynamic decode failed → static 3×3 fallback (${e.message})")
+//            if (raw == "0x") error("Contract returned empty data")
+//
+//            /*  Solidity packs a static array directly (no head/tail):
+//                   slot0-8 = 9 × 32-byte words
+//                     each word: 12 bytes padding | 20 bytes address
+//                 -> take the last 40 hex chars of each 64-char word       */
+//            val addrs = buildList(9) {            // flatten first
+//                for (i in 0 until 9) {
+//                    val word   = raw.drop(2).substring(i * 64, i * 64 + 64)
+//                    val addr40 = word.takeLast(40)
+//                    add("0x$addr40".lowercase())
+//                }
+//            }
+//            // chunk into 3 rows
+//            return@withContext listOf(
+//                addrs.subList(0, 3),
+//                addrs.subList(3, 6),
+//                addrs.subList(6, 9)
+//            )
+//        }
+//    }
 
     fun getCurrentGameAddress(): String? = currentGameAddress
 
@@ -265,6 +266,109 @@ object Blockchain {
             run(pb)
         }
     }
+//    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
+//        val game = currentGameAddress ?: error("No game set")
+//        val fn = Function(
+//            fnName,
+//            emptyList(),
+//            listOf(TypeReference.create(Bool::class.java))
+//        )
+//        val raw = web3j.ethCall(
+//            Transaction.createEthCallTransaction(
+//                getPlayerCredentials(0).address, game,
+//                FunctionEncoder.encode(fn)
+//            ),
+//            DefaultBlockParameterName.LATEST
+//        ).send().result
+//        try {
+//            val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+//            return@withContext decoded[0].value as Boolean
+//        } catch (iae: IllegalArgumentException) {
+//            error("Cannot decode boolean from ‘$raw’")
+//        }
+//    }
+//
+//    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
+//        val game = currentGameAddress ?: error("No game set")
+//        val fn = Function(
+//            fnName,
+//            emptyList(),
+//            listOf(TypeReference.create(Address::class.java))
+//        )
+//        val raw = web3j.ethCall(
+//            Transaction.createEthCallTransaction(
+//                getPlayerCredentials(0).address, game,
+//                FunctionEncoder.encode(fn)
+//            ),
+//            DefaultBlockParameterName.LATEST
+//        ).send().result
+//        try {
+//            val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+//            return@withContext (decoded[0].value as Address).value
+//        } catch (iae: IllegalArgumentException) {
+//            error("Cannot decode address from ‘$raw’")
+//        }
+//    }
+//
+
+
+    // ──────────────────────────────────
+// REPLACE the old helpers with this
+// ──────────────────────────────────
+    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+        val fn   = Function(fnName, emptyList(),
+            listOf(object : TypeReference<Bool>() {})
+        )
+
+        val raw = web3j.ethCall(
+            Transaction.createEthCallTransaction(
+                getPlayerCredentials(0).address, game,
+                FunctionEncoder.encode(fn)
+            ),
+            DefaultBlockParameterName.LATEST
+        ).send().result
+
+        return@withContext try {
+            val d = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+            when (val v = d.firstOrNull()?.value) {
+                is Boolean -> v
+                is Bool    -> v.value
+                else       -> error("Unexpected bool payload: $v")
+            }
+        } catch (e: Exception) {
+            error("Cannot decode bool for $fnName – $raw")
+        }
+    }
+
+    /** Returns the hex address in lower-case; never throws ClassCastException. */
+    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+        val fn   = Function(fnName, emptyList(),
+            listOf(object : TypeReference<Address>() {})
+        )
+
+        val raw = web3j.ethCall(
+            Transaction.createEthCallTransaction(
+                getPlayerCredentials(0).address, game,
+                FunctionEncoder.encode(fn)
+            ),
+            DefaultBlockParameterName.LATEST
+        ).send().result
+
+        return@withContext try {
+            val d = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+            val v = d.firstOrNull()?.value
+            when (v) {
+                is Address -> v.value.lowercase()
+                is String  -> v.lowercase()
+                else       -> ZERO_ADDRESS          // fallback – treat as “no winner”
+            }
+        } catch (_: Exception) {
+            ZERO_ADDRESS                              // graceful fallback
+        }
+    }
+
 
 
     private suspend fun sendTransaction(
@@ -401,4 +505,117 @@ object Blockchain {
             .digest(addr.lowercase().removePrefix("0x").toByteArray())
         return emojis[(h[0].toInt() and 0xFF) % emojis.size]
     }
+
+    /**
+     * Fetches the 3×3 board from the contract.
+     * Tries the “dynamic array of dynamic arrays” decoder first;
+     * on ANY failure (including ClassCastException) falls back
+     * to slicing the raw 9×32-byte words.
+     */
+    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
+        val game = currentGameAddress ?: error("No game set")
+
+        // ① dynamic decode
+        val dynFn = Function(
+            "getBoardState",
+            emptyList(),
+            listOf(object : TypeReference<
+                    org.web3j.abi.datatypes.DynamicArray<
+                            org.web3j.abi.datatypes.DynamicArray<Address>>>() {})
+        )
+        val callData = FunctionEncoder.encode(dynFn)
+        val raw = web3j
+            .ethCall(
+                Transaction.createEthCallTransaction(
+                    getPlayerCredentials(0).address,
+                    game, callData
+                ),
+                DefaultBlockParameterName.LATEST
+            )
+            .send()
+            .result
+        println("DEBUG RPC → $raw")
+
+        try {
+            val decoded = FunctionReturnDecoder.decode(raw, dynFn.outputParameters)
+            @Suppress("UNCHECKED_CAST")
+            val outer = decoded[0].value as List<*>
+            return@withContext outer.map { row ->
+                @Suppress("UNCHECKED_CAST")
+                (row as List<*>).map { cell ->
+                    when (cell) {
+                        is Address -> cell.value.lowercase()
+                        is String  -> cell.lowercase()
+                        else        -> error("Unexpected board cell type: ${cell?.javaClass}")
+                    }
+                }
+            }
+        } catch (decodeErr: Exception) {
+            // ② static 3×3 fallback
+            println("…dynamic decode failed → static 3×3 fallback (${decodeErr.message})")
+            if (raw == "0x") error("Contract returned empty data")
+
+            // strip “0x”, take 9 words of 64 hex chars each → last 40 chars = address
+            val flat = (0 until 9).map { i ->
+                val word = raw.drop(2).substring(i*64, i*64 + 64)
+                "0x" + word.takeLast(40)
+            }
+            return@withContext listOf(
+                flat.subList(0,3),
+                flat.subList(3,6),
+                flat.subList(6,9)
+            ).map { row -> row.map(String::lowercase) }
+        }
+    }
+
+
+//
+//
+//    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
+//        val game = currentGameAddress ?: error("No game set")
+//
+//        // ① Try the canonical dynamic [][] decoder
+//        val fnDyn = Function(
+//            "getBoardState",
+//            emptyList(),
+//            listOf(object : TypeReference<DynamicArray<DynamicArray<Address>>>() {})
+//        )
+//        val callData = FunctionEncoder.encode(fnDyn)
+//
+//        val raw = web3j.ethCall(
+//            Transaction.createEthCallTransaction(
+//                getPlayerCredentials(0).address,
+//                game,
+//                callData
+//            ),
+//            DefaultBlockParameterName.LATEST
+//        ).send().value
+//        println("DEBUG RPC → $raw")
+//
+//        try {
+//            val decoded = FunctionReturnDecoder.decode(raw, fnDyn.outputParameters)
+//            val outer   = decoded[0].value as List<*>
+//            return@withContext outer.map { row ->
+//                (row as List<*>).map { (it as Address).value.lowercase() }
+//            }
+//        } catch (e: Exception) {
+//            // ② Fallback for a static 3×3 array (Hardhat output)
+//            println("…dynamic decode failed → static 3×3 fallback (${e.message})")
+//            if (raw == "0x") error("Contract returned empty data")
+//
+//            // Split into 64-char words, take first 9
+//            val words = raw.removePrefix("0x").chunked(64)
+//            if (words.size < 9) error("Unexpected board payload length: ${words.size}")
+//            val addrs = words.take(9).map { word ->
+//                "0x" + word.takeLast(40).lowercase()
+//            }
+//
+//            // Chunk into three rows
+//            return@withContext listOf(
+//                addrs.subList(0, 3),
+//                addrs.subList(3, 6),
+//                addrs.subList(6, 9)
+//            )
+//        }
+//    }
 }

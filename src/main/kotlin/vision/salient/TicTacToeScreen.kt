@@ -15,10 +15,28 @@ import androidx.compose.foundation.layout.Arrangement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.security.MessageDigest
+// Removed java.io.File import as it's not directly used in this composable
+// Removed java.security.MessageDigest import as Blockchain.emojiForAddress is used
 
 const val ZERO_ADDRESS ="0x0000000000000000000000000000000000000000"
+
+// Helper function for TextField colors, styled for the Matrix theme
+@Composable
+fun matrixTextFieldColors() = TextFieldDefaults.outlinedTextFieldColors(
+    textColor = MaterialTheme.colors.onSurface,
+    backgroundColor = MaterialTheme.colors.surface, // Or Color.Transparent if you prefer window bg to show through
+    cursorColor = MaterialTheme.colors.primary,
+    errorCursorColor = MaterialTheme.colors.error,
+    focusedBorderColor = MaterialTheme.colors.primary,
+    unfocusedBorderColor = MaterialTheme.colors.onSurface.copy(alpha = 0.3f), // Dimmer green
+    disabledBorderColor = MaterialTheme.colors.onSurface.copy(alpha = ContentAlpha.disabled),
+    errorBorderColor = MaterialTheme.colors.error,
+    focusedLabelColor = MaterialTheme.colors.primary.copy(alpha = ContentAlpha.high),
+    unfocusedLabelColor = MaterialTheme.colors.onSurface.copy(ContentAlpha.medium),
+    disabledLabelColor = MaterialTheme.colors.onSurface.copy(ContentAlpha.disabled),
+    placeholderColor = MaterialTheme.colors.onSurface.copy(ContentAlpha.medium),
+    disabledPlaceholderColor = MaterialTheme.colors.onSurface.copy(ContentAlpha.disabled)
+)
 
 @Composable
 fun TicTacToeScreen() {
@@ -29,20 +47,18 @@ fun TicTacToeScreen() {
     var factoryAddr      by remember { mutableStateOf<String?>(null) }
     var gameAddr         by remember { mutableStateOf<String?>(null) }
     var board            by remember { mutableStateOf<List<List<String>>?>(null) }
-//    var rowInput         by remember { mutableStateOf("1") }
-//    var colInput         by remember { mutableStateOf("1") }
     var currentPlayerIdx by remember { mutableStateOf(0) }
     var rowInput         by remember { mutableStateOf("0") }  // 0-based grid
     var colInput         by remember { mutableStateOf("0") }
-    // players list is rebuilt whenever we switch local⇄remote
     val players by remember(Blockchain.isLocal) {
         mutableStateOf(List(Blockchain.getPlayerCount()) { Blockchain.getPlayerCredentials(it) })
     }
 
     val scope = rememberCoroutineScope()
 
+    // Get the themed colors for text fields
+    val customTextFieldColors = matrixTextFieldColors()
 
-    // refresh board when gameAddr changes
     LaunchedEffect(gameAddr) {
         if (!gameAddr.isNullOrBlank()) {
             status = "Loading board…"
@@ -52,48 +68,32 @@ fun TicTacToeScreen() {
     }
 
     Column(
-        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+        modifier = Modifier.padding(16.dp).fillMaxWidth(), // Background is handled by Surface in Main.kt
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Tic-Tac-Toe Web3", style = MaterialTheme.typography.h5)
+        Text("Tic-Tac-Toe Web3", style = MaterialTheme.typography.h5) // Color will be onBackground (MatrixGreen)
         Spacer(Modifier.height(12.dp))
 
-        // LOCAL ⇄ SEPOLIA toggle   +   Print addresses
         Row(verticalAlignment = Alignment.CenterVertically) {
             val label = if (Blockchain.isLocal) "LOCAL ✔" else "SEPOLIA ✔"
             Button(onClick = {
                 scope.launch {
-                    // flip runtime
                     val newFlag = !Blockchain.isLocal
                     Blockchain.applyLocal(newFlag)
-                    // wipe UI-side state
                     factoryAddr = null
                     gameAddr    = null
                     board       = null
                     currentPlayerIdx = 0
                     status = "Switched to ${if (newFlag) "LOCAL" else "SEPOLIA"} mode"
                 }
-            }) { Text(label) }
+            }) { Text(label) } // Button text will be onPrimary (MatrixBlack), background primary (MatrixGreen)
 
             Spacer(Modifier.width(8.dp))
             Button(onClick = { scope.launch { Blockchain.printDerivedAddresses() } }) { Text("Print Addrs") }
         }
         Spacer(Modifier.height(8.dp))
 
-        // Deploy script trigger (only when LOCAL)
         if (Blockchain.isLocal) {
-            //TODO if next time we hang or get errors we revert to this
-//            Button(onClick = {
-//                scope.launch {
-//                    status = "Deploying…"
-//                    val ok = Blockchain.runDeploy()//File("../tic-tac-toe-smart-contract")
-//
-////                    val ok = Blockchain.runLocalDeploy(File("../tic-tac-toe-smart-contract"))
-//                    status = if (ok) "Deploy OK – Load Factory" else "Deploy failed 💥"
-//                }
-//            }) { Text("Deploy (npx tsx)") }
-//
-
             Button(
                 onClick = {
                     scope.launch {
@@ -107,8 +107,7 @@ fun TicTacToeScreen() {
                 enabled = !isLoading
             ) {
                 if (isLoading) {
-                    // small spinner inside the button
-                    CircularProgressIndicator(
+                    CircularProgressIndicator( // Color will be primary (MatrixGreen)
                         modifier     = Modifier.size(16.dp),
                         strokeWidth  = 2.dp
                     )
@@ -119,17 +118,14 @@ fun TicTacToeScreen() {
                 }
             }
             Spacer(Modifier.height(8.dp))
-
         }
 
-        // Load factory
         Button(onClick = {
             factoryAddr = Blockchain.getFactoryAddress()
             status      = "Factory: $factoryAddr"
         }) { Text("Load Factory") }
         Spacer(Modifier.height(8.dp))
 
-        // Create game (player-1 signer)
         Button(
             onClick = {
                 scope.launch {
@@ -143,12 +139,12 @@ fun TicTacToeScreen() {
         ) { Text("Create Game (P1)") }
         Spacer(Modifier.height(8.dp))
 
-        // Join game manual
         OutlinedTextField(
             value       = gameAddr ?: "",
             onValueChange = { gameAddr = it },
             label       = { Text("Game Address") },
-            singleLine  = true
+            singleLine  = true,
+            colors      = customTextFieldColors // Apply themed colors
         )
         Spacer(Modifier.height(4.dp))
         Button(
@@ -160,7 +156,6 @@ fun TicTacToeScreen() {
         ) { Text("Join Game") }
         Spacer(Modifier.height(16.dp))
 
-        // player selector / move controls
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = { currentPlayerIdx = (currentPlayerIdx + 1) % players.size }) {
                 Text("Signer: P${currentPlayerIdx + 1}")
@@ -172,7 +167,8 @@ fun TicTacToeScreen() {
                 { rowInput = it.filter(Char::isDigit) },
                 label = { Text("Row") },
                 modifier = Modifier.width(70.dp),
-                singleLine = true
+                singleLine = true,
+                colors = customTextFieldColors // Apply themed colors
             )
             Spacer(Modifier.width(6.dp))
             OutlinedTextField(
@@ -180,50 +176,10 @@ fun TicTacToeScreen() {
                 { colInput = it.filter(Char::isDigit) },
                 label = { Text("Col") },
                 modifier = Modifier.width(70.dp),
-                singleLine = true
+                singleLine = true,
+                colors = customTextFieldColors // Apply themed colors
             )
             Spacer(Modifier.width(6.dp))
-
-
-//
-//
-//            Button(
-//                onClick = {
-//                    scope.launch {
-//                        val r = rowInput.toIntOrNull() ?: -1
-//                        val c = colInput.toIntOrNull() ?: -1
-//                        if (r !in 0..2 || c !in 0..2) {
-//                            status = "Bad cell"
-//                            return@launch
-//                        }
-//                        status = "Submitting move…"
-//                        try {
-//                            Blockchain.makeMove(currentPlayerIdx, r, c)
-//                            board = Blockchain.getBoardState()
-//                            // ** new **
-//                            val ended = Blockchain.readBool("gameEnded")
-//                            if (ended) {
-//                                val w = Blockchain.readAddress("winner")
-//                                status = "Game over – winner: ${Blockchain.emojiForAddress(w)}"
-//                            } else {
-//                                status = "Move OK"
-//                            }
-//                        }  catch (e: Exception) {
-//                                // ensure non-nullable
-//                                val msg = e.localizedMessage ?: e.message ?: "Unknown error"
-//                                status = when {
-//                                    msg.contains("revert", ignoreCase = true)     -> "Invalid move: out of turn or cell taken"
-//                                    msg.contains("format 0x", ignoreCase = true)  -> "Contract returned invalid data"
-//                                    else                                          -> msg
-//                                }
-//                            }
-//                    }
-//                },
-//                enabled = !gameAddr.isNullOrBlank()
-//            ) {
-//                Text("Make Move")
-//            }
-
 
             Button(
                 onClick = {
@@ -234,126 +190,37 @@ fun TicTacToeScreen() {
                             status = "Bad cell"
                             return@launch
                         }
-
                         status = "Submitting move…"
                         try {
-                            // ── 1. send tx
                             Blockchain.makeMove(currentPlayerIdx, r, c)
-
-                            // ── 2. always refresh board
                             board = Blockchain.getBoardState()
-
-                            // ── 3. game over?
                             val ended  = Blockchain.readBool("gameEnded")
                             val winner = Blockchain.readAddress("winner")
-
                             status = if (ended) {
                                 when (winner.lowercase()) {
-                                    ZERO_ADDRESS                         -> "Draw!"
-                                    Blockchain.getPlayerCredentials(currentPlayerIdx)
-                                        .address.lowercase()            -> "You won!"
-                                    Blockchain.getPlayerCredentials(0)
-                                        .address.lowercase()            -> "Player 1 wins!"
-                                    Blockchain.getPlayerCredentials(1)
-                                        .address.lowercase()            -> "Player 2 wins!"
-                                    else                                -> "Game over"
+                                    ZERO_ADDRESS -> "Draw!"
+                                    Blockchain.getPlayerCredentials(currentPlayerIdx).address.lowercase() -> "You won!"
+                                    Blockchain.getPlayerCredentials(0).address.lowercase() -> "Player 1 wins!"
+                                    Blockchain.getPlayerCredentials(1).address.lowercase() -> "Player 2 wins!"
+                                    else -> "Game over"
                                 }
-                            } else {
-                                "Move OK"
-                            }
+                            } else { "Move OK" }
                         } catch (e: Exception) {
-                            // Log error to console for debugging
                             println("Error: ${e.localizedMessage ?: e.message}")
-
-                            // Handle known error messages gracefully
                             val msg = e.localizedMessage ?: e.message ?: "Unknown error"
                             status = when {
                                 msg.contains("revert",  true) -> "Invalid move: out of turn / cell taken"
                                 msg.contains("0x",      true) -> "Contract returned invalid data"
-                                else                          -> msg
+                                else -> msg
                             }
                         }
                     }
                 },
                 enabled = !gameAddr.isNullOrBlank()
             ) { Text("Make Move") }
-
-//            Button(
-//                onClick = {
-//                    scope.launch {
-//                        val r = rowInput.toIntOrNull() ?: -1
-//                        val c = colInput.toIntOrNull() ?: -1
-//                        if (r !in 0..2 || c !in 0..2) {
-//                            status = "Bad cell"
-//                            return@launch
-//                        }
-//                        status = "Submitting move…"
-//                        try {
-//                            // submit
-//                            Blockchain.makeMove(currentPlayerIdx, r, c)
-//                            // refresh
-//                            board = Blockchain.getBoardState()
-//
-//                            // check for end-of-game
-//                            val ended  = Blockchain.readBool("gameEnded")
-//                            val winner = Blockchain.readAddress("winner")?.lowercase()
-//
-//                            status = if (ended) {
-//                                when (winner) {
-//                                    null,
-//                                    ZERO_ADDRESS -> "Draw!"
-//                                    Blockchain.getPlayerCredentials(currentPlayerIdx).address.lowercase() ->
-//                                        "You won!"
-//                                    else ->
-//                                        "Player ${if (winner == Blockchain.getPlayerCredentials(0).address.lowercase()) "1" else "2"} wins!"
-//                                }
-//                            } else {
-//                                "Move OK"
-//                            }
-//                        } catch (e: Exception) {
-//                            // map known error substrings to friendly messages
-//                            val msg = e.localizedMessage ?: e.message ?: "Unknown error"
-//                            status = when {
-//                                msg.contains("revert",    ignoreCase = true) ->
-//                                    "Invalid move: out of turn or cell taken"
-//                                msg.contains("format 0x", ignoreCase = true) ->
-//                                    "Contract returned invalid data"
-//                                else                                       ->
-//                                    msg
-//                            }
-//                        }
-//                    }
-//                },
-//                enabled = !gameAddr.isNullOrBlank()
-//            ) {
-//                Text("Make Move")
-//            }
-//
-//            Button(
-//                onClick = {
-//                    scope.launch {
-//                        val r = rowInput.toIntOrNull() ?: -1
-//                        val c = colInput.toIntOrNull() ?: -1
-//                        if (r !in 0..2 || c !in 0..2) {
-//                            status = "Bad cell"
-//                            return@launch
-//                        }
-//                        status = "Submitting move…"
-//                        try {
-//                            Blockchain.makeMove(currentPlayerIdx, r, c)
-//                            board = Blockchain.getBoardState()
-//                            status = "Move OK"
-//                        } catch (e: Exception) {
-//                            status = e.localizedMessage
-//                        }
-//                    }
-//                },
-//                enabled = !gameAddr.isNullOrBlank()
-//            ) { Text("Make Move") }
         }
         Spacer(Modifier.height(16.dp))
 
-        // Board grid
         board?.let { rows ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 rows.forEach { row ->
@@ -363,122 +230,75 @@ fun TicTacToeScreen() {
                                 "0x0000000000000000000000000000000000000000" -> ""
                                 else -> Blockchain.emojiForAddress(owner)
                             }
-                            Card(
+                            Card( // Card background will be surface (MatrixBlack)
                                 modifier = Modifier.size(60.dp).padding(2.dp),
-                                border   = BorderStroke(1.dp, Color.Gray)
-                            ) { Box(contentAlignment = Alignment.Center) { Text(mark, fontSize = 24.sp) } }
+                                border   = BorderStroke(1.dp, MaterialTheme.colors.primary.copy(alpha = 0.7f)), // Themed border
+                                elevation = 2.dp // Optional: add some elevation if desired
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(mark, fontSize = 24.sp) // Text color will be onSurface (MatrixGreen)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-
-
-        // Status footer
         status?.let {
             Spacer(Modifier.height(12.dp))
-            Text(it, modifier = Modifier.padding(4.dp))
+            Text(it, modifier = Modifier.padding(4.dp)) // Color will be onBackground (MatrixGreen)
         }
         Spacer(Modifier.height(16.dp))
         Text("Debug Calls", style = MaterialTheme.typography.h6)
         Spacer(Modifier.height(8.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-
-
-            // ✅ correct
             Button(
                 onClick = {
                     scope.launch {
                         status = "Reading board…"
-                        board = try {
-                            Blockchain.getBoardState()
-                        } catch (e: Exception) {
-                            println("Board error: ${e.message}")
-                            null
-                        }
+                        board = try { Blockchain.getBoardState() } catch (e: Exception) { println("Board error: ${e.message}"); null }
                         status = board?.let { "Board refreshed" } ?: "Board fetch failed"
                     }
                 }
-            ) {
-                Text("🔄 Refresh Board")
-            }
+            ) { Text("🔄 Refresh Board") }
 
             Button(onClick = {
                 scope.launch {
-                    status = try {
-                        "Ended? ${Blockchain.readBool("gameEnded")}"
-                    } catch (e: Exception) {
-                        "Error: ${e.message}"
-                    }
+                    status = try { "Ended? ${Blockchain.readBool("gameEnded")}" } catch (e: Exception) { "Error: ${e.message}" }
                 }
-            }) {
-                Text("🏁 gameEnded")
-            }
+            }) { Text("🏁 gameEnded") }
         }
-
         Spacer(Modifier.height(6.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(onClick = {
                 scope.launch {
-                    status = try {
-                        "Last: ${Blockchain.readAddress("lastPlayer")}"
-                    } catch (e: Exception) {
-                        "Error: ${e.message}"
-                    }
+                    status = try { "Last: ${Blockchain.readAddress("lastPlayer")}" } catch (e: Exception) { "Error: ${e.message}" }
                 }
-            }) {
-                Text("👤 lastPlayer")
-            }
+            }) { Text("👤 lastPlayer") }
 
             Button(onClick = {
                 scope.launch {
-                    status = try {
-                        "Winner: ${Blockchain.readAddress("winner")}"
-                    } catch (e: Exception) {
-                        "Error: ${e.message}"
-                    }
+                    status = try { "Winner: ${Blockchain.readAddress("winner")}" } catch (e: Exception) { "Error: ${e.message}" }
                 }
-            }) {
-                Text("🏆 winner")
-            }
-
-            // NEW BUTTONS
-            Button(onClick = {
-                scope.launch {
-                    status = try {
-                        val addr = Blockchain.getCurrentGameAddress() ?: "<none>"
-                        "Current game address: $addr"
-                    } catch (e: Exception) {
-                        "Error: ${e.message}"
-                    }
-                }
-            }) {
-                Text("📍 currentGame")
-            }
+            }) { Text("🏆 winner") }
 
             Button(onClick = {
                 scope.launch {
-                    status = try {
-                        val factory = Blockchain.getFactoryAddress() ?: "<none>"
-                        "Factory address: $factory"
-                    } catch (e: Exception) {
-                        "Error: ${e.message}"
-                    }
+                    status = try { val addr = Blockchain.getCurrentGameAddress() ?: "<none>"; "Current game address: $addr" } catch (e: Exception) { "Error: ${e.message}" }
                 }
-            }) {
-                Text("🏭 factoryAddr")
-            }
+            }) { Text("📍 currentGame") }
+
+            Button(onClick = {
+                scope.launch {
+                    status = try { val factory = Blockchain.getFactoryAddress() ?: "<none>"; "Factory address: $factory" } catch (e: Exception) { "Error: ${e.message}" }
+                }
+            }) { Text("🏭 factoryAddr") }
         }
     }
-
-
-
-
 }
-
 /* deterministic emoji palette (same as Blockchain.emojiForAddress uses) */
 private val EMOJI = listOf(
     "😀","🐱","🐶","🦊","🐸","🐵","🐼","🐯","🐰","🦁",

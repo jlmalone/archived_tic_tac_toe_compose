@@ -28,39 +28,33 @@ import org.web3j.utils.Numeric
 import java.io.File
 import java.math.BigInteger
 import java.security.MessageDigest
-import kotlin.text.get
 
+/**
+ * Data class to hold deployment addresses loaded from JSON resources
+ */
 @Serializable
 private data class DeploymentAddresses(
     val gameImplementationAddress: String? = null,
     val factoryAddress: String? = null
 )
 
+/**
+ * Blockchain service object that handles all Web3 interactions for the Tic-Tac-Toe game.
+ * Supports both local Hardhat network and Sepolia testnet.
+ */
 object Blockchain {
-    // --- Startup .env load ---
+    // --- Configuration loading ---
     private val dotenv = dotenv { ignoreIfMissing = true }
 
-    // --- Mutable runtime flags & RPC setup ---
+    // --- Network configuration ---
     private var localFlag = dotenv["LOCAL"]?.toBoolean() ?: true
     val isLocal get() = localFlag
-
-    fun applyLocal(flag: Boolean) {
-        localFlag = flag
-        // reset chain-specific state
-        deploymentInfo = loadDeploymentInfo()
-        currentGameAddress = null
-        // rebuild HTTP client
-        httpService = HttpService(RPC_URL)
-        web3j = Web3j.build(httpService)
-        println("[Blockchain] ➡️  Switched to ${if (localFlag) "LOCAL/Hardhat" else "SEPOLIA"}")
-        printDerivedAddresses()
-    }
 
     private val ALCHEMY_API_KEY = dotenv["ALCHEMY_API_KEY"] ?: ""
     private val SEPOLIA_CHAIN_ID = dotenv["SEPOLIA_CHAIN_ID"]?.toLongOrNull() ?: 11155111L
     private val HARDHAT_CHAIN_ID = dotenv["HARDHAT_CHAIN_ID"]?.toLongOrNull() ?: 31337L
-
-    private val HARDHAT_PROJECT_DIR = dotenv["HARDHAT_PROJECT_DIR"] ?: "/Users/josephmalone/tic-tac-toe-smart-contract"
+    private val HARDHAT_PROJECT_DIR = dotenv["HARDHAT_PROJECT_DIR"]
+        ?: System.getProperty("user.home") + "/tic-tac-toe-smart-contract"
 
     private val RPC_URL: String
         get() = if (localFlag)
@@ -68,161 +62,99 @@ object Blockchain {
         else
             dotenv["SEPOLIA_RPC_URL"] ?: "https://eth-sepolia.g.alchemy.com/v2/$ALCHEMY_API_KEY"
 
+    // --- Web3 client ---
     private var httpService = HttpService(RPC_URL)
     private var web3j = Web3j.build(httpService)
 
-    // --- Dynamic credentials getters ---
+    // --- State management ---
+    private var deploymentInfo: DeploymentAddresses? = loadDeploymentInfo().apply {
+        println("[Blockchain] Loaded deployment info: $this")
+    }
+    private var currentGameAddress: String? = null
+
+    /**
+     * Switch between local Hardhat and Sepolia network
+     */
+    fun applyLocal(flag: Boolean) {
+        localFlag = flag
+        // Reset chain-specific state
+        deploymentInfo = loadDeploymentInfo()
+        currentGameAddress = null
+        // Rebuild HTTP client for new network
+        httpService = HttpService(RPC_URL)
+        web3j = Web3j.build(httpService)
+        println("[Blockchain] ➡️  Switched to ${if (localFlag) "LOCAL/Hardhat" else "SEPOLIA"}")
+        printDerivedAddresses()
+    }
+
+    /**
+     * Get player credentials based on current network
+     */
     fun getPlayerCredentials(index: Int): Credentials =
         if (localFlag) {
             when (index) {
-                0 -> Credentials.create(dotenv["PRIVATE_KEY_HARDHAT_0"] ?: error("Missing PK H0"))
-                else -> Credentials.create(dotenv["PRIVATE_KEY_HARDHAT_1"] ?: error("Missing PK H1"))
+                0 -> Credentials.create(dotenv["PRIVATE_KEY_HARDHAT_0"] ?: error("Missing PRIVATE_KEY_HARDHAT_0 in .env"))
+                else -> Credentials.create(dotenv["PRIVATE_KEY_HARDHAT_1"] ?: error("Missing PRIVATE_KEY_HARDHAT_1 in .env"))
             }
         } else {
             when (index) {
-                0 -> Credentials.create(dotenv["PRIVATE_KEY_PLAYER1"] ?: error("Missing PK1"))
-                else -> Credentials.create(dotenv["PRIVATE_KEY_PLAYER2"] ?: error("Missing PK2"))
+                0 -> Credentials.create(dotenv["PRIVATE_KEY_PLAYER1"] ?: error("Missing PRIVATE_KEY_PLAYER1 in .env"))
+                else -> Credentials.create(dotenv["PRIVATE_KEY_PLAYER2"] ?: error("Missing PRIVATE_KEY_PLAYER2 in .env"))
             }
         }
 
     fun getPlayerCount(): Int = 2
 
-    // --- Deployment info load & reload ---
-    private var deploymentInfo: DeploymentAddresses? = loadDeploymentInfo().apply {
-        //todo
-        println("deployment info is "+this.toString())
-    }
-
+    /**
+     * Load deployment addresses from resources based on current network
+     */
     private fun loadDeploymentInfo(): DeploymentAddresses? {
+        val path = if (isLocal)
+            "deployment_output_hardhat_local.json"
+        else
+            "deployment_output_sepolia_testnet.json"
 
-        //do not screw this up and change it
-        val path =  if(isLocal) "deployment_output_hardhat_local.json" else "deployment_output_sepolia_testnet.json"
-        println("path is $path")
-        val stream = this::class.java.classLoader.getResourceAsStream(path) ?: return null
-        return Json { ignoreUnknownKeys = true }
-            .decodeFromString<DeploymentAddresses>(stream.reader().readText())
+        println("[Blockchain] Loading deployment info from: $path")
+        val stream = this::class.java.classLoader.getResourceAsStream(path) ?: run {
+            println("[Blockchain] Warning: Could not find $path in resources")
+            return null
+        }
+
+        return try {
+            Json { ignoreUnknownKeys = true }
+                .decodeFromString<DeploymentAddresses>(stream.reader().readText())
+        } catch (e: Exception) {
+            println("[Blockchain] Error parsing deployment info: ${e.message}")
+            null
+        }
     }
 
     fun getFactoryAddress(): String? = deploymentInfo?.factoryAddress
 
-    private var currentGameAddress: String? = null
     fun setCurrentGameAddress(addr: String?) {
         currentGameAddress = addr
+        println("[Blockchain] Current game address set to: ${addr ?: "<none>"}")
     }
-
-//    /** Call a zero-arg function that returns a single `bool`. */
-//    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//        val fn = Function(
-//            fnName,
-//            emptyList(),
-//            listOf(object : TypeReference<Bool>() {})
-//        )
-//        val callData = FunctionEncoder.encode(fn)
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
-//            DefaultBlockParameterName.LATEST
-//        ).send().value
-//        println("DEBUG call $fnName → $raw")
-//        FunctionReturnDecoder.decode(raw, fn.outputParameters)
-//            .firstOrNull()
-//            .let { (it as? Bool)?.value }
-//            ?: false
-//    }
-//
-//    /** Call a zero-arg function that returns a single `address`. */
-//    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//        val fn = Function(
-//            fnName,
-//            emptyList(),
-//            listOf(object : TypeReference<Address>() {})
-//        )
-//        val callData = FunctionEncoder.encode(fn)
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
-//            DefaultBlockParameterName.LATEST
-//        ).send().value
-//        println("DEBUG call $fnName → $raw")
-//        FunctionReturnDecoder.decode(raw, fn.outputParameters)
-//            .firstOrNull()
-//            .let { (it as? Address)?.value?.lowercase() }
-//            ?: "<none>"
-//    }
-
-//    /** ----------------------------------------------------------------
-//     *  Board decoding helper.
-//     *  Hard-hat build returns a static address[3][3] (9×20-byte words).
-//     *  Web3j cannot reflect `StaticArray3<StaticArray3<Address>>`, so:
-//     *    ① try the canonical decoder (works if contract ever returns a
-//     *       dynamic [][] array);
-//     *    ② fallback → manual slice-up for the static 3×3 matrix.
-//     *  Returns rows = listOf( row0, row1, row2 )  where each row is a
-//     *  list of owner-addresses as lowercase hex strings.
-//     *  ---------------------------------------------------------------- */
-//    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//
-//        // ①  attempt dynamic [][] decode
-//        val fnDyn = Function(
-//            "getBoardState", emptyList(),
-//            listOf(object : TypeReference<
-//                    org.web3j.abi.datatypes.DynamicArray<
-//                            org.web3j.abi.datatypes.DynamicArray<Address>>>() {})
-//        )
-//        val callData = FunctionEncoder.encode(fnDyn)
-//
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(getPlayerCredentials(0).address, game, callData),
-//            DefaultBlockParameterName.LATEST
-//        ).send().result
-//        println("DEBUG RPC → $raw")
-//
-//        try {
-//            val decoded = FunctionReturnDecoder.decode(raw, fnDyn.outputParameters)
-//            val outer   = decoded[0].value as List<*>
-//            return@withContext outer.map { row ->
-//                (row as List<*>).map { (it as Address).value.lowercase() }
-//            }
-//        } catch (e: Exception) {
-//            // ②  static address[3][3] fallback
-//            println("…dynamic decode failed → static 3×3 fallback (${e.message})")
-//            if (raw == "0x") error("Contract returned empty data")
-//
-//            /*  Solidity packs a static array directly (no head/tail):
-//                   slot0-8 = 9 × 32-byte words
-//                     each word: 12 bytes padding | 20 bytes address
-//                 -> take the last 40 hex chars of each 64-char word       */
-//            val addrs = buildList(9) {            // flatten first
-//                for (i in 0 until 9) {
-//                    val word   = raw.drop(2).substring(i * 64, i * 64 + 64)
-//                    val addr40 = word.takeLast(40)
-//                    add("0x$addr40".lowercase())
-//                }
-//            }
-//            // chunk into 3 rows
-//            return@withContext listOf(
-//                addrs.subList(0, 3),
-//                addrs.subList(3, 6),
-//                addrs.subList(6, 9)
-//            )
-//        }
-//    }
 
     fun getCurrentGameAddress(): String? = currentGameAddress
 
-    // --- Logging & debug info ---
+    /**
+     * Print current configuration and addresses for debugging
+     */
     fun printDerivedAddresses() {
         println("── address info ──")
-        println("P1    : ${getPlayerCredentials(0).address}")
-        println("P2    : ${getPlayerCredentials(1).address}")
-        println("Factory: ${getFactoryAddress() ?: "<none>"}")
-        println("Game   : ${currentGameAddress ?: "<none>"}")
-        println("RPC    : $RPC_URL (chainId=${if (localFlag) HARDHAT_CHAIN_ID else SEPOLIA_CHAIN_ID})")
+        println("P1      : ${getPlayerCredentials(0).address}")
+        println("P2      : ${getPlayerCredentials(1).address}")
+        println("Factory : ${getFactoryAddress() ?: "<none>"}")
+        println("Game    : ${currentGameAddress ?: "<none>"}")
+        println("RPC     : $RPC_URL")
+        println("Chain ID: ${if (localFlag) HARDHAT_CHAIN_ID else SEPOLIA_CHAIN_ID}")
         println("───────────────────")
     }
 
-    // --- Helpers ---
+    /**
+     * Calculate gas price with market-based pricing and optional bump for retries
+     */
     private suspend fun calculateGasPrice(prev: BigInteger? = null): BigInteger = withContext(Dispatchers.IO) {
         val market = web3j.ethGasPrice().send().gasPrice
         val target = market.multiply(BigInteger.valueOf(3)).divide(BigInteger.valueOf(2))
@@ -230,21 +162,14 @@ object Blockchain {
         target.max(bump)
     }
 
-
     /**
-     * Run the TS deploy script in the Solidity repo.
-    // removed    * @param projectDir  absolute path to tic-tac-toe-smart-contract
+     * Run the TypeScript deploy script in the Solidity project directory
      * @return true on success
      */
-    fun runDeploy(): Boolean {//projectDir: File
+    fun runDeploy(): Boolean {
         val flag = if (isLocal) "--local" else "--sepolia"
-
-        // 1️⃣  configurable override
         val rawNpx = dotenv["NPX_PATH"]?.ifBlank { null } ?: "npx"
-
-        // first try plain npx
         var cmdList = listOf(rawNpx, "tsx", "deployment/deploy_ethers.ts", flag)
-
         var pb = ProcessBuilder(cmdList).directory(File(HARDHAT_PROJECT_DIR))
 
         fun run(pb: ProcessBuilder): Boolean {
@@ -253,124 +178,87 @@ object Blockchain {
         }
 
         return try {
-            println("[Blockchain] ■ ${cmdList.joinToString(" ")}")
+            println("[Blockchain] Running: ${cmdList.joinToString(" ")}")
             run(pb)
         } catch (e: java.io.IOException) {
-            // fall-back: run through login shell so PATH gets initialised
-            cmdList = listOf(
-                "bash", "-lc",
-                "${cmdList.joinToString(" ")}"        // the same npx command
-            )
+            // Fallback: run through login shell so PATH gets initialized
+            cmdList = listOf("bash", "-lc", cmdList.joinToString(" "))
             pb = ProcessBuilder(cmdList).directory(File(HARDHAT_PROJECT_DIR))
-            println("[Blockchain] ■ via shell → ${cmdList.joinToString(" ")}")
+            println("[Blockchain] Fallback via shell: ${cmdList.joinToString(" ")}")
             run(pb)
         }
     }
-//    suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//        val fn = Function(
-//            fnName,
-//            emptyList(),
-//            listOf(TypeReference.create(Bool::class.java))
-//        )
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(
-//                getPlayerCredentials(0).address, game,
-//                FunctionEncoder.encode(fn)
-//            ),
-//            DefaultBlockParameterName.LATEST
-//        ).send().result
-//        try {
-//            val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
-//            return@withContext decoded[0].value as Boolean
-//        } catch (iae: IllegalArgumentException) {
-//            error("Cannot decode boolean from ‘$raw’")
-//        }
-//    }
-//
-//    suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//        val fn = Function(
-//            fnName,
-//            emptyList(),
-//            listOf(TypeReference.create(Address::class.java))
-//        )
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(
-//                getPlayerCredentials(0).address, game,
-//                FunctionEncoder.encode(fn)
-//            ),
-//            DefaultBlockParameterName.LATEST
-//        ).send().result
-//        try {
-//            val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
-//            return@withContext (decoded[0].value as Address).value
-//        } catch (iae: IllegalArgumentException) {
-//            error("Cannot decode address from ‘$raw’")
-//        }
-//    }
-//
 
-
-    // ──────────────────────────────────
-// REPLACE the old helpers with this
-// ──────────────────────────────────
+    /**
+     * Call a zero-argument contract function that returns a boolean
+     */
     suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
-        val fn   = Function(fnName, emptyList(),
+        val game = currentGameAddress ?: error("No game address set")
+        val fn = Function(
+            fnName,
+            emptyList(),
             listOf(object : TypeReference<Bool>() {})
         )
 
         val raw = web3j.ethCall(
             Transaction.createEthCallTransaction(
-                getPlayerCredentials(0).address, game,
+                getPlayerCredentials(0).address,
+                game,
                 FunctionEncoder.encode(fn)
             ),
             DefaultBlockParameterName.LATEST
         ).send().result
 
         return@withContext try {
-            val d = FunctionReturnDecoder.decode(raw, fn.outputParameters)
-            when (val v = d.firstOrNull()?.value) {
+            val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+            when (val v = decoded.firstOrNull()?.value) {
                 is Boolean -> v
-                is Bool    -> v.value
-                else       -> error("Unexpected bool payload: $v")
+                is Bool -> v.value
+                else -> error("Unexpected bool payload: $v")
             }
         } catch (e: Exception) {
-            error("Cannot decode bool for $fnName – $raw")
+            println("[Blockchain] Error decoding bool for $fnName: ${e.message}")
+            error("Cannot decode bool for $fnName from $raw")
         }
     }
 
-    /** Returns the hex address in lower-case; never throws ClassCastException. */
+    /**
+     * Call a zero-argument contract function that returns an address
+     * Returns the hex address in lowercase, or ZERO_ADDRESS on error
+     */
     suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
-        val fn   = Function(fnName, emptyList(),
+        val game = currentGameAddress ?: error("No game address set")
+        val fn = Function(
+            fnName,
+            emptyList(),
             listOf(object : TypeReference<Address>() {})
         )
 
         val raw = web3j.ethCall(
             Transaction.createEthCallTransaction(
-                getPlayerCredentials(0).address, game,
+                getPlayerCredentials(0).address,
+                game,
                 FunctionEncoder.encode(fn)
             ),
             DefaultBlockParameterName.LATEST
         ).send().result
 
         return@withContext try {
-            val d = FunctionReturnDecoder.decode(raw, fn.outputParameters)
-            val v = d.firstOrNull()?.value
-            when (v) {
+            val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
+            when (val v = decoded.firstOrNull()?.value) {
                 is Address -> v.value.lowercase()
-                is String  -> v.lowercase()
-                else       -> ZERO_ADDRESS          // fallback – treat as “no winner”
+                is String -> v.lowercase()
+                else -> ZERO_ADDRESS
             }
-        } catch (_: Exception) {
-            ZERO_ADDRESS                              // graceful fallback
+        } catch (e: Exception) {
+            println("[Blockchain] Error decoding address for $fnName: ${e.message}")
+            ZERO_ADDRESS
         }
     }
 
-
-
+    /**
+     * Send a transaction to the blockchain with automatic gas pricing and retry logic
+     */
     private suspend fun sendTransaction(
         from: Credentials,
         to: String,
@@ -399,67 +287,77 @@ object Blockchain {
         if (resp.hasError()) {
             val msg = resp.error.message
             if (retry == 0 && msg.contains("underpriced", true)) {
+                println("[Blockchain] Transaction underpriced, retrying with higher gas...")
                 return@withContext sendTransaction(from, to, data, value, gasPrice, 1)
             }
-            error("TX Error: $msg")
+            error("Transaction error: $msg")
         }
         resp.transactionHash
     }
 
+    /**
+     * Wait for a transaction receipt with timeout
+     * @return TransactionReceipt if found within 120 attempts (4 minutes), null otherwise
+     */
     private suspend fun waitForReceipt(txHash: String): TransactionReceipt? = withContext(Dispatchers.IO) {
         repeat(120) { i ->
-            if (web3j.ethGetTransactionByHash(txHash).send().transaction.isPresent)
-                println("📦 in mempool… attempt ${i + 1}")
+            if (web3j.ethGetTransactionByHash(txHash).send().transaction.isPresent) {
+                println("[Blockchain] 📦 Transaction in mempool... attempt ${i + 1}")
+            }
             val recOpt = web3j.ethGetTransactionReceipt(txHash).send().transactionReceipt
-            if (recOpt.isPresent) return@withContext recOpt.get()
+            if (recOpt.isPresent) {
+                println("[Blockchain] ✅ Transaction confirmed")
+                return@withContext recOpt.get()
+            }
             kotlinx.coroutines.delay(2000)
         }
+        println("[Blockchain] ⚠️  Transaction receipt timeout")
         null
     }
-//
-//    // --- Deploy local script launcher ---
-//    suspend fun runLocalDeploy(projectDir: File): Boolean = withContext(Dispatchers.IO) {
-//        try {
-//            val proc = ProcessBuilder("npx", "tsx", "deployment/deploy_ethers.ts")
-//                .directory(projectDir)
-//                .redirectOutput(ProcessBuilder.Redirect.INHERIT)
-//                .redirectError(ProcessBuilder.Redirect.INHERIT)
-//                .start()
-//            val exit = proc.waitFor()
-//            println("[Blockchain] Local deploy exited $exit")
-//            // reload factory address
-//            applyLocal(true)
-//            exit == 0
-//        } catch (e: Exception) {
-//            println("[Blockchain] Deploy failed: ${e.message}")
-//            false
-//        }
-//    }
 
-    // --- Deploy / Factory → Game flows ---
+    /**
+     * Create a new game via the factory contract
+     * @param idx Player index (0 or 1)
+     * @return Game address if successful, null otherwise
+     */
     suspend fun createGameByPlayer(idx: Int = 0): String? = withContext(Dispatchers.IO) {
-        val factory = getFactoryAddress() ?: error("No factory")
-        val fn = Function("createGame", emptyList(), listOf(TypeReference.create(Address::class.java)))
+        val factory = getFactoryAddress() ?: error("No factory address available")
+        val fn = Function(
+            "createGame",
+            emptyList(),
+            listOf(TypeReference.create(Address::class.java))
+        )
         val data = FunctionEncoder.encode(fn)
 
         val hash = sendTransaction(getPlayerCredentials(idx), factory, data)
-        println("[Blockchain] ✔ tx $hash")
-        val rec = waitForReceipt(hash) ?: error("No receipt")
+        println("[Blockchain] ✔ Transaction sent: $hash")
+
+        val rec = waitForReceipt(hash) ?: error("No receipt received for game creation")
         val evt = Event("GameCreated", listOf(TypeReference.create(Address::class.java)))
         val sig = EventEncoder.encode(evt)
+
         rec.logs.forEach { log ->
             if (log.topics.firstOrNull() == sig) {
                 val addrHex = log.topics[1].removePrefix("0x").takeLast(40)
                 val newAddr = "0x$addrHex"
                 currentGameAddress = newAddr
+                println("[Blockchain] 🎮 New game created at: $newAddr")
                 return@withContext newAddr
             }
         }
+        println("[Blockchain] ⚠️  Could not find GameCreated event in receipt")
         null
     }
 
+    /**
+     * Make a move in the current game
+     * @param idx Player index (0 or 1)
+     * @param row Row index (0-2)
+     * @param col Column index (0-2)
+     * @return Transaction hash
+     */
     suspend fun makeMove(idx: Int, row: Int, col: Int): String = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
+        val game = currentGameAddress ?: error("No game address set")
         val fn = Function(
             "makeMove",
             listOf(Uint8(row.toLong()), Uint8(col.toLong())),
@@ -467,76 +365,41 @@ object Blockchain {
         )
         val data = FunctionEncoder.encode(fn)
         val hash = sendTransaction(getPlayerCredentials(idx), game, data)
-        waitForReceipt(hash) ?: error("No receipt move")
+        println("[Blockchain] 🎯 Move submitted: ($row, $col) - tx: $hash")
+        waitForReceipt(hash) ?: error("No receipt received for move")
         hash
-    }
-//
-//    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//        val fn = Function(
-//            "getBoardState",
-//            emptyList(),
-//            listOf(object :
-//                TypeReference<org.web3j.abi.datatypes.DynamicArray<org.web3j.abi.datatypes.DynamicArray<Address>>>() {})
-//        )
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(
-//                getPlayerCredentials(0).address,
-//                game,
-//                FunctionEncoder.encode(fn)
-//            ),
-//            DefaultBlockParameterName.LATEST
-//        ).send().result
-//        println("DEBUG RPC → $raw")
-//        val decoded = FunctionReturnDecoder.decode(raw, fn.outputParameters)
-//        val outer = decoded[0].value as List<*>
-//        outer.map { row ->
-//            (row as List<*>).map { (it as Address).value }
-//        }
-//    }
-
-    // Emoji-hash helper (if you need it elsewhere)
-    fun emojiForAddress(addr: String): String {
-        val emojis = listOf(
-            "😀", "🐶", "🌟", "🍕", "🚀", "🐍", "🎮", "📚", "🎵", "🌈",
-            "🍔", "🧠", "🦄", "💎", "🕹️", "🧊", "⚡", "💡", "🧩", "🎯"
-        )
-        val h = MessageDigest.getInstance("SHA-256")
-            .digest(addr.lowercase().removePrefix("0x").toByteArray())
-        return emojis[(h[0].toInt() and 0xFF) % emojis.size]
     }
 
     /**
-     * Fetches the 3×3 board from the contract.
-     * Tries the “dynamic array of dynamic arrays” decoder first;
-     * on ANY failure (including ClassCastException) falls back
-     * to slicing the raw 9×32-byte words.
+     * Get the current board state from the contract
+     * Tries dynamic array decoding first, falls back to static array decoding
+     * @return 3x3 grid of addresses (lowercase hex strings)
      */
     suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
-        val game = currentGameAddress ?: error("No game set")
+        val game = currentGameAddress ?: error("No game address set")
 
-        // ① dynamic decode
         val dynFn = Function(
             "getBoardState",
             emptyList(),
-            listOf(object : TypeReference<
-                    org.web3j.abi.datatypes.DynamicArray<
-                            org.web3j.abi.datatypes.DynamicArray<Address>>>() {})
+            listOf(object : TypeReference<DynamicArray<DynamicArray<Address>>>() {})
         )
         val callData = FunctionEncoder.encode(dynFn)
         val raw = web3j
             .ethCall(
                 Transaction.createEthCallTransaction(
                     getPlayerCredentials(0).address,
-                    game, callData
+                    game,
+                    callData
                 ),
                 DefaultBlockParameterName.LATEST
             )
             .send()
             .result
-        println("DEBUG RPC → $raw")
+
+        println("[Blockchain] Board state RPC response: $raw")
 
         try {
+            // Try dynamic array decoding
             val decoded = FunctionReturnDecoder.decode(raw, dynFn.outputParameters)
             @Suppress("UNCHECKED_CAST")
             val outer = decoded[0].value as List<*>
@@ -545,77 +408,40 @@ object Blockchain {
                 (row as List<*>).map { cell ->
                     when (cell) {
                         is Address -> cell.value.lowercase()
-                        is String  -> cell.lowercase()
-                        else        -> error("Unexpected board cell type: ${cell?.javaClass}")
+                        is String -> cell.lowercase()
+                        else -> error("Unexpected board cell type: ${cell?.javaClass}")
                     }
                 }
             }
         } catch (decodeErr: Exception) {
-            // ② static 3×3 fallback
-            println("…dynamic decode failed → static 3×3 fallback (${decodeErr.message})")
+            // Fallback to static array decoding
+            println("[Blockchain] Dynamic decode failed, using static 3×3 fallback: ${decodeErr.message}")
             if (raw == "0x") error("Contract returned empty data")
 
-            // strip “0x”, take 9 words of 64 hex chars each → last 40 chars = address
+            // Parse static array: 9 words of 64 hex chars each, last 40 chars = address
             val flat = (0 until 9).map { i ->
-                val word = raw.drop(2).substring(i*64, i*64 + 64)
+                val word = raw.drop(2).substring(i * 64, i * 64 + 64)
                 "0x" + word.takeLast(40)
             }
             return@withContext listOf(
-                flat.subList(0,3),
-                flat.subList(3,6),
-                flat.subList(6,9)
+                flat.subList(0, 3),
+                flat.subList(3, 6),
+                flat.subList(6, 9)
             ).map { row -> row.map(String::lowercase) }
         }
     }
 
-
-//
-//
-//    suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
-//        val game = currentGameAddress ?: error("No game set")
-//
-//        // ① Try the canonical dynamic [][] decoder
-//        val fnDyn = Function(
-//            "getBoardState",
-//            emptyList(),
-//            listOf(object : TypeReference<DynamicArray<DynamicArray<Address>>>() {})
-//        )
-//        val callData = FunctionEncoder.encode(fnDyn)
-//
-//        val raw = web3j.ethCall(
-//            Transaction.createEthCallTransaction(
-//                getPlayerCredentials(0).address,
-//                game,
-//                callData
-//            ),
-//            DefaultBlockParameterName.LATEST
-//        ).send().value
-//        println("DEBUG RPC → $raw")
-//
-//        try {
-//            val decoded = FunctionReturnDecoder.decode(raw, fnDyn.outputParameters)
-//            val outer   = decoded[0].value as List<*>
-//            return@withContext outer.map { row ->
-//                (row as List<*>).map { (it as Address).value.lowercase() }
-//            }
-//        } catch (e: Exception) {
-//            // ② Fallback for a static 3×3 array (Hardhat output)
-//            println("…dynamic decode failed → static 3×3 fallback (${e.message})")
-//            if (raw == "0x") error("Contract returned empty data")
-//
-//            // Split into 64-char words, take first 9
-//            val words = raw.removePrefix("0x").chunked(64)
-//            if (words.size < 9) error("Unexpected board payload length: ${words.size}")
-//            val addrs = words.take(9).map { word ->
-//                "0x" + word.takeLast(40).lowercase()
-//            }
-//
-//            // Chunk into three rows
-//            return@withContext listOf(
-//                addrs.subList(0, 3),
-//                addrs.subList(3, 6),
-//                addrs.subList(6, 9)
-//            )
-//        }
-//    }
+    /**
+     * Generate a deterministic emoji for an Ethereum address
+     * Used to visually represent players on the board
+     */
+    fun emojiForAddress(addr: String): String {
+        val emojis = listOf(
+            "😀", "🐶", "🌟", "🍕", "🚀", "🐍", "🎮", "📚", "🎵", "🌈",
+            "🍔", "🧠", "🦄", "💎", "🕹️", "🧊", "⚡", "💡", "🧩", "🎯"
+        )
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest(addr.lowercase().removePrefix("0x").toByteArray())
+        return emojis[(hash[0].toInt() and 0xFF) % emojis.size]
+    }
 }

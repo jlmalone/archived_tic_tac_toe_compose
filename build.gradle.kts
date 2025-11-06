@@ -1,10 +1,10 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
-    kotlin("jvm") version "2.1.0"
-    id("org.jetbrains.compose") version "1.7.3"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0" // Keep serialization for JSON parsing
+    kotlin("jvm") version "1.9.24"
+    id("org.jetbrains.compose") version "1.6.11"
+    id("org.jetbrains.kotlin.plugin.compose") version "1.9.24"
+    kotlin("plugin.serialization") version "1.9.24"
 }
 
 group = "vision.salient"
@@ -20,14 +20,21 @@ repositories {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
-    implementation("org.web3j:core:5.0.0") // Only need core
+    implementation("org.web3j:core:5.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // For JSON parsing
-    // Optional: Logging implementation
-    // implementation("ch.qos.logback:logback-classic:1.3.11")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+    // Testing dependencies
+    testImplementation(kotlin("test"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-// NO sourceSets { main { java { ... } } } block needed
+tasks.test {
+    useJUnitPlatform()
+}
 
 compose.desktop {
     application {

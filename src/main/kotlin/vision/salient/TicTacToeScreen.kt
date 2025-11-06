@@ -299,9 +299,3 @@ fun TicTacToeScreen() {
         }
     }
 }
-/* deterministic emoji palette (same as Blockchain.emojiForAddress uses) */
-private val EMOJI = listOf(
-    "😀","🐱","🐶","🦊","🐸","🐵","🐼","🐯","🐰","🦁",
-    "🐮","🐔","🐧","🐨","🐙","🦄","🐝","🐢","🐞","🐳"
-)
-

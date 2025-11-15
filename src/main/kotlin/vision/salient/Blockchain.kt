@@ -30,20 +30,92 @@ import java.math.BigInteger
 import java.security.MessageDigest
 import kotlin.text.get
 
+/**
+ * Data class representing deployment addresses from deployment JSON files.
+ *
+ * This class is used to deserialize the deployment output files generated
+ * by the Hardhat/TypeScript deployment scripts.
+ *
+ * @property gameImplementationAddress The address of the deployed TicTacToeGame implementation contract
+ * @property factoryAddress The address of the deployed TicTacToeFactory contract
+ */
 @Serializable
 private data class DeploymentAddresses(
     val gameImplementationAddress: String? = null,
     val factoryAddress: String? = null
 )
 
+/**
+ * Blockchain integration module for Tic-Tac-Toe DApp.
+ *
+ * This object provides a complete Web3j-based interface to interact with
+ * Ethereum-based Tic-Tac-Toe smart contracts. It supports both local Hardhat
+ * development networks and Sepolia testnet.
+ *
+ * ## Features
+ * - Dual network support (LOCAL Hardhat / SEPOLIA testnet)
+ * - Player credential management
+ * - Smart contract deployment via TypeScript scripts
+ * - Game creation and move submission
+ * - Board state reading and decoding
+ * - Transaction handling with retry logic
+ * - Gas price optimization
+ *
+ * ## Security Considerations
+ * - Private keys are loaded from environment variables (.env file)
+ * - All transactions are signed locally using Web3j
+ * - Gas prices include 150% safety margin
+ * - Automatic retry on "underpriced" transaction errors
+ * - See SECURITY.md for comprehensive security analysis
+ *
+ * ## Usage Example
+ * ```kotlin
+ * // Switch to LOCAL network
+ * Blockchain.applyLocal(true)
+ *
+ * // Load factory address
+ * val factoryAddress = Blockchain.getFactoryAddress()
+ *
+ * // Create a new game
+ * val gameAddress = Blockchain.createGameByPlayer(0)
+ * Blockchain.setCurrentGameAddress(gameAddress)
+ *
+ * // Make a move
+ * Blockchain.makeMove(0, row = 0, col = 0)
+ *
+ * // Read board state
+ * val board = Blockchain.getBoardState()
+ * ```
+ *
+ * @see <a href="https://docs.web3j.io/">Web3j Documentation</a>
+ */
 object Blockchain {
     // --- Startup .env load ---
     private val dotenv = dotenv { ignoreIfMissing = true }
 
     // --- Mutable runtime flags & RPC setup ---
     private var localFlag = dotenv["LOCAL"]?.toBoolean() ?: true
+
+    /**
+     * Returns true if currently configured for LOCAL (Hardhat) network.
+     *
+     * @return true if LOCAL mode, false if SEPOLIA mode
+     */
     val isLocal get() = localFlag
 
+    /**
+     * Switches between LOCAL (Hardhat) and SEPOLIA testnet networks.
+     *
+     * This function performs a complete network switch, including:
+     * - Updating the RPC URL
+     * - Reloading deployment info from the appropriate JSON file
+     * - Resetting the current game address
+     * - Rebuilding the Web3j HTTP client
+     *
+     * @param flag true for LOCAL (Hardhat), false for SEPOLIA
+     *
+     * @see [isLocal] for checking current network mode
+     */
     fun applyLocal(flag: Boolean) {
         localFlag = flag
         // reset chain-specific state
@@ -72,6 +144,27 @@ object Blockchain {
     private var web3j = Web3j.build(httpService)
 
     // --- Dynamic credentials getters ---
+    /**
+     * Retrieves player credentials (private key wrapper) for the specified player index.
+     *
+     * This function loads the appropriate private key from environment variables based on:
+     * - Current network mode (LOCAL vs SEPOLIA)
+     * - Player index (0 or 1)
+     *
+     * ## Environment Variables
+     * - LOCAL mode:
+     *   - Player 0: `PRIVATE_KEY_HARDHAT_0`
+     *   - Player 1: `PRIVATE_KEY_HARDHAT_1`
+     * - SEPOLIA mode:
+     *   - Player 0: `PRIVATE_KEY_PLAYER1`
+     *   - Player 1: `PRIVATE_KEY_PLAYER2`
+     *
+     * @param index Player index (0 or 1). Index >= 1 defaults to player 1.
+     * @return Credentials object containing the player's private key and derived address
+     * @throws IllegalStateException if the required environment variable is missing
+     *
+     * @see [isLocal] for current network mode
+     */
     fun getPlayerCredentials(index: Int): Credentials =
         if (localFlag) {
             when (index) {
@@ -85,6 +178,11 @@ object Blockchain {
             }
         }
 
+    /**
+     * Returns the number of supported players (always 2 for Tic-Tac-Toe).
+     *
+     * @return 2 (number of players)
+     */
     fun getPlayerCount(): Int = 2
 
     // --- Deployment info load & reload ---
@@ -103,9 +201,27 @@ object Blockchain {
             .decodeFromString<DeploymentAddresses>(stream.reader().readText())
     }
 
+    /**
+     * Returns the factory contract address for the current network.
+     *
+     * The factory address is loaded from deployment JSON files:
+     * - LOCAL: `deployment_output_hardhat_local.json`
+     * - SEPOLIA: `deployment_output_sepolia_testnet.json`
+     *
+     * @return Factory contract address (0x...) or null if not deployed
+     */
     fun getFactoryAddress(): String? = deploymentInfo?.factoryAddress
 
     private var currentGameAddress: String? = null
+
+    /**
+     * Sets the currently active game contract address.
+     *
+     * This address is used by all game-related functions (makeMove, getBoardState, etc.).
+     *
+     * @param addr Game contract address (0x...) or null to clear
+     * @see [getCurrentGameAddress] for retrieving the current game address
+     */
     fun setCurrentGameAddress(addr: String?) {
         currentGameAddress = addr
     }
@@ -209,9 +325,26 @@ object Blockchain {
 //        }
 //    }
 
+    /**
+     * Returns the currently active game contract address.
+     *
+     * @return Current game address (0x...) or null if no game is set
+     * @see [setCurrentGameAddress] for setting the active game
+     */
     fun getCurrentGameAddress(): String? = currentGameAddress
 
     // --- Logging & debug info ---
+    /**
+     * Prints player addresses, factory address, and network information to console.
+     *
+     * This is a debug utility that displays:
+     * - Player 1 and Player 2 addresses
+     * - Factory contract address
+     * - Current game address (if set)
+     * - RPC URL and chain ID
+     *
+     * **Note**: This only prints public addresses, never private keys.
+     */
     fun printDerivedAddresses() {
         println("── address info ──")
         println("P1    : ${getPlayerCredentials(0).address}")
@@ -232,9 +365,26 @@ object Blockchain {
 
 
     /**
-     * Run the TS deploy script in the Solidity repo.
-    // removed    * @param projectDir  absolute path to tic-tac-toe-smart-contract
-     * @return true on success
+     * Executes the TypeScript deployment script to deploy smart contracts.
+     *
+     * This function runs the deployment script located in the Hardhat project directory:
+     * `deployment/deploy_ethers.ts`
+     *
+     * The script is executed via `npx tsx` with the appropriate network flag:
+     * - LOCAL mode: `--local` flag
+     * - SEPOLIA mode: `--sepolia` flag
+     *
+     * ## Environment Variables
+     * - `HARDHAT_PROJECT_DIR`: Path to the smart contract repository (default: `/Users/josephmalone/tic-tac-toe-smart-contract`)
+     * - `NPX_PATH`: Path to npx executable (default: `npx`)
+     *
+     * ## Security Warning
+     * This function executes external commands. Ensure `HARDHAT_PROJECT_DIR` and `NPX_PATH`
+     * point to trusted locations. See SECURITY.md for details.
+     *
+     * @return true if deployment succeeded (exit code 0), false otherwise
+     *
+     * @see [applyLocal] to switch networks before deploying
      */
     fun runDeploy(): Boolean {//projectDir: File
         val flag = if (isLocal) "--local" else "--sepolia"
@@ -315,6 +465,20 @@ object Blockchain {
     // ──────────────────────────────────
 // REPLACE the old helpers with this
 // ──────────────────────────────────
+    /**
+     * Calls a contract function that returns a boolean value.
+     *
+     * This is a generic helper for reading boolean contract state, such as:
+     * - `gameEnded()` - checks if the game has ended
+     * - Any other contract function returning `bool`
+     *
+     * @param fnName Name of the contract function to call
+     * @return Boolean value returned by the contract
+     * @throws IllegalStateException if no game address is set
+     * @throws Exception if the contract call fails or returns invalid data
+     *
+     * @see [setCurrentGameAddress] for setting the active game
+     */
     suspend fun readBool(fnName: String): Boolean = withContext(Dispatchers.IO) {
         val game = currentGameAddress ?: error("No game set")
         val fn   = Function(fnName, emptyList(),
@@ -341,7 +505,22 @@ object Blockchain {
         }
     }
 
-    /** Returns the hex address in lower-case; never throws ClassCastException. */
+    /**
+     * Calls a contract function that returns an Ethereum address.
+     *
+     * This is a generic helper for reading address values from contract state, such as:
+     * - `winner()` - returns the winner's address (or zero address)
+     * - `lastPlayer()` - returns the address of the last player who moved
+     * - Any other contract function returning `address`
+     *
+     * @param fnName Name of the contract function to call
+     * @return Ethereum address as lowercase hex string (0x...)
+     * @throws IllegalStateException if no game address is set
+     *
+     * **Note**: Returns zero address (0x0000...0000) on error instead of throwing
+     *
+     * @see [setCurrentGameAddress] for setting the active game
+     */
     suspend fun readAddress(fnName: String): String = withContext(Dispatchers.IO) {
         val game = currentGameAddress ?: error("No game set")
         val fn   = Function(fnName, emptyList(),
@@ -437,6 +616,28 @@ object Blockchain {
 //    }
 
     // --- Deploy / Factory → Game flows ---
+    /**
+     * Creates a new Tic-Tac-Toe game via the factory contract.
+     *
+     * This function:
+     * 1. Calls `createGame()` on the TicTacToeFactory contract
+     * 2. Waits for transaction confirmation
+     * 3. Extracts the new game address from the `GameCreated` event
+     * 4. Automatically sets the new game as the current game
+     *
+     * ## Transaction Details
+     * - Gas price: 150% of current market price
+     * - Gas limit: 150% of estimated gas
+     * - Signer: Player at index `idx`
+     *
+     * @param idx Player index who creates the game (default: 0)
+     * @return Address of the newly created game contract (0x...) or null if creation failed
+     * @throws IllegalStateException if factory address is not set
+     * @throws Exception if transaction fails
+     *
+     * @see [getFactoryAddress] for checking if factory is deployed
+     * @see [setCurrentGameAddress] - automatically called with new game address
+     */
     suspend fun createGameByPlayer(idx: Int = 0): String? = withContext(Dispatchers.IO) {
         val factory = getFactoryAddress() ?: error("No factory")
         val fn = Function("createGame", emptyList(), listOf(TypeReference.create(Address::class.java)))
@@ -458,6 +659,33 @@ object Blockchain {
         null
     }
 
+    /**
+     * Submits a move to the current game contract.
+     *
+     * This function:
+     * 1. Validates that a game is set (throws if not)
+     * 2. Encodes the `makeMove(uint8 row, uint8 col)` call
+     * 3. Signs and sends the transaction
+     * 4. Waits for transaction confirmation
+     *
+     * ## Input Validation
+     * Client-side validation should ensure:
+     * - `row` and `col` are in range [0, 2]
+     * - The cell is not already occupied
+     * - It's the correct player's turn
+     *
+     * Contract-side validation will revert if any rules are violated.
+     *
+     * @param idx Player index making the move (0 or 1)
+     * @param row Row index (0-2, top to bottom)
+     * @param col Column index (0-2, left to right)
+     * @return Transaction hash (0x...)
+     * @throws IllegalStateException if no game address is set
+     * @throws Exception if transaction fails or is reverted
+     *
+     * @see [setCurrentGameAddress] for setting the active game
+     * @see [getBoardState] for reading the board after a move
+     */
     suspend fun makeMove(idx: Int, row: Int, col: Int): String = withContext(Dispatchers.IO) {
         val game = currentGameAddress ?: error("No game set")
         val fn = Function(
@@ -495,7 +723,22 @@ object Blockchain {
 //        }
 //    }
 
-    // Emoji-hash helper (if you need it elsewhere)
+    /**
+     * Generates a deterministic emoji representation for an Ethereum address.
+     *
+     * This function uses SHA-256 hashing to map each address to one of 20 emojis.
+     * The same address will always produce the same emoji, making it useful for
+     * visual player identification in the UI.
+     *
+     * ## Emoji Palette
+     * 😀, 🐶, 🌟, 🍕, 🚀, 🐍, 🎮, 📚, 🎵, 🌈,
+     * 🍔, 🧠, 🦄, 💎, 🕹️, 🧊, ⚡, 💡, 🧩, 🎯
+     *
+     * @param addr Ethereum address (0x... or without prefix, case-insensitive)
+     * @return Single emoji character representing this address
+     *
+     * @see [getBoardState] which uses this for displaying occupied cells
+     */
     fun emojiForAddress(addr: String): String {
         val emojis = listOf(
             "😀", "🐶", "🌟", "🍕", "🚀", "🐍", "🎮", "📚", "🎵", "🌈",
@@ -507,10 +750,38 @@ object Blockchain {
     }
 
     /**
-     * Fetches the 3×3 board from the contract.
-     * Tries the “dynamic array of dynamic arrays” decoder first;
-     * on ANY failure (including ClassCastException) falls back
-     * to slicing the raw 9×32-byte words.
+     * Fetches the current 3×3 board state from the game contract.
+     *
+     * This function reads the board via `getBoardState()` contract call and returns
+     * a 3×3 matrix of Ethereum addresses representing occupied cells.
+     *
+     * ## Return Format
+     * ```kotlin
+     * listOf(
+     *   listOf(cell[0][0], cell[0][1], cell[0][2]), // Top row
+     *   listOf(cell[1][0], cell[1][1], cell[1][2]), // Middle row
+     *   listOf(cell[2][0], cell[2][1], cell[2][2])  // Bottom row
+     * )
+     * ```
+     *
+     * Each cell contains:
+     * - Player's Ethereum address (0x...) if occupied
+     * - Zero address (0x0000...0000) if empty
+     *
+     * ## Decoding Strategy
+     * This function implements a fallback decoding strategy:
+     * 1. **Primary**: Attempt to decode as dynamic `address[][]` array
+     * 2. **Fallback**: If decoding fails, manually parse the raw 9×32-byte ABI encoding
+     *
+     * The fallback is necessary because Solidity's static `address[3][3]` and dynamic
+     * `address[][]` have different ABI encodings.
+     *
+     * @return 3×3 list of lowercase Ethereum address strings
+     * @throws IllegalStateException if no game address is set
+     * @throws Exception if contract returns empty data or invalid format
+     *
+     * @see [makeMove] for updating the board
+     * @see [emojiForAddress] for converting addresses to visual emojis
      */
     suspend fun getBoardState(): List<List<String>> = withContext(Dispatchers.IO) {
         val game = currentGameAddress ?: error("No game set")

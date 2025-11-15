@@ -1,3 +1,21 @@
+/**
+ * Tic-Tac-Toe DApp UI Screen
+ *
+ * This file contains the main Compose UI for the Tic-Tac-Toe blockchain game.
+ *
+ * ## Features
+ * - Network switching (LOCAL/SEPOLIA)
+ * - Smart contract deployment
+ * - Factory loading
+ * - Game creation and joining
+ * - Player selection
+ * - Move submission with validation
+ * - Board visualization with emoji player markers
+ * - Debug controls for contract state inspection
+ *
+ * @see Blockchain for blockchain integration
+ * @see MatrixTheme for themed colors
+ */
 // src/main/kotlin/vision/salient/TicTacToeScreen.kt
 package vision.salient
 
@@ -18,9 +36,28 @@ import kotlinx.coroutines.withContext
 // Removed java.io.File import as it's not directly used in this composable
 // Removed java.security.MessageDigest import as Blockchain.emojiForAddress is used
 
+/**
+ * Ethereum zero address constant.
+ *
+ * This address (0x0000...0000) represents:
+ * - Empty board cells
+ * - No winner
+ * - Null player reference
+ */
 const val ZERO_ADDRESS ="0x0000000000000000000000000000000000000000"
 
-// Helper function for TextField colors, styled for the Matrix theme
+/**
+ * Provides Matrix-themed colors for OutlinedTextField components.
+ *
+ * This composable function returns a TextFieldColors object configured with:
+ * - Neon green (#00FF00) for active states
+ * - Black (#000000) background
+ * - Semi-transparent green for inactive/disabled states
+ *
+ * @return TextFieldColors configured for Matrix theme
+ *
+ * @see MatrixTheme for overall theme configuration
+ */
 @Composable
 fun matrixTextFieldColors() = TextFieldDefaults.outlinedTextFieldColors(
     textColor = MaterialTheme.colors.onSurface,
@@ -38,6 +75,42 @@ fun matrixTextFieldColors() = TextFieldDefaults.outlinedTextFieldColors(
     disabledPlaceholderColor = MaterialTheme.colors.onSurface.copy(ContentAlpha.disabled)
 )
 
+/**
+ * Main UI screen for the Tic-Tac-Toe DApp.
+ *
+ * This composable displays the complete game interface including:
+ *
+ * ## Control Section
+ * - Network toggle (LOCAL/SEPOLIA)
+ * - Print Addresses debug button
+ * - Deploy button (LOCAL only)
+ * - Load Factory button
+ * - Create Game button
+ * - Game Address input field
+ * - Join Game button
+ *
+ * ## Game Play Section
+ * - Player selector (P1/P2)
+ * - Row/Col input fields
+ * - Make Move button
+ *
+ * ## Board Display
+ * - 3×3 grid showing current board state
+ * - Empty cells shown as blank
+ * - Occupied cells shown with player emoji
+ *
+ * ## Debug Section
+ * - Refresh Board button
+ * - gameEnded, lastPlayer, winner query buttons
+ * - currentGame, factoryAddr info buttons
+ *
+ * ## State Management
+ * All blockchain interactions are performed asynchronously using coroutines.
+ * UI state is managed using Compose `remember` and `mutableStateOf`.
+ *
+ * @see Blockchain for all blockchain operations
+ * @see MatrixTheme for theming
+ */
 @Composable
 fun TicTacToeScreen() {
     var isLoading by remember { mutableStateOf(false) }

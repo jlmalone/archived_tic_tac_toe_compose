@@ -5,6 +5,7 @@ plugins {
     id("org.jetbrains.compose") version "1.7.3"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.0"
     kotlin("plugin.serialization") version "2.1.0" // Keep serialization for JSON parsing
+    jacoco // Code coverage
 }
 
 group = "vision.salient"
@@ -25,6 +26,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // For JSON parsing
     // Optional: Logging implementation
     // implementation("ch.qos.logback:logback-classic:1.3.11")
+
+    // Testing dependencies
+    testImplementation(kotlin("test"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testImplementation("io.mockk:mockk:1.13.9")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation(compose.desktop.uiTestJUnit4)
+    testImplementation(compose.desktop.currentOs)
 }
 
 // NO sourceSets { main { java { ... } } } block needed
@@ -38,4 +47,36 @@ compose.desktop {
             packageVersion = "1.0.0"
         }
     }
+}
+
+// Test configuration
+tasks.test {
+    useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport) // Generate coverage report after tests
+}
+
+// Jacoco configuration for code coverage
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+}
+
+// Coverage verification - enforce 80% minimum
+tasks.jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            limit {
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+}
+
+// Make check depend on coverage verification
+tasks.check {
+    dependsOn(tasks.jacocoTestCoverageVerification)
 }

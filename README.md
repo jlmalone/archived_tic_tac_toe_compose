@@ -15,3 +15,8 @@ https://cloud.google.com/application/web3/faucet/ethereum/sepolia
 
 
 https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%221H1VEOKRuK4xOAulKlVTzCdZ-UGedSojx%22%5D,%22action%22:%22open%22,%22userId%22:%22105903347225150947554%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing
+
+
+Alchemy Link
+
+https://dashboard.alchemy.com/logs?time=day

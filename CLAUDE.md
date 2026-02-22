@@ -4,7 +4,7 @@
 
 ## Tic-Tac-Toe Blockchain Ecosystem
 
-This project is part of a 6-project ecosystem. **Flagship:** [tic-tac-toe-eth-react](~/WebstormProjects/tic-tac-toe-eth-react/) ([ECOSYSTEM.md](~/WebstormProjects/tic-tac-toe-eth-react/ECOSYSTEM.md))
+This project is part of a 7-project ecosystem. **Flagship:** [tic-tac-toe-eth-react](~/WebstormProjects/tic-tac-toe-eth-react/) ([ECOSYSTEM.md](~/WebstormProjects/tic-tac-toe-eth-react/ECOSYSTEM.md))
 
 | Project | Path | Chain | Status |
 |---------|------|-------|--------|
@@ -13,6 +13,7 @@ This project is part of a 6-project ecosystem. **Flagship:** [tic-tac-toe-eth-re
 | tic_tac_toe_android | `~/StudioProjects/tic_tac_toe_android/` | ETH Sepolia | Working |
 | tic_tac_toe_ios_ethereum | `~/ios_code/tic_tac_toe_ios_ethereum/` | ETH Sepolia | Working |
 | **tic_tac_toe_compose** (this repo) | `~/IdeaProjects/tic_tac_toe_compose/` | ETH Sepolia | **BROKEN** |
+| tic-tac-toe-cli | `~/IdeaProjects/tic-tac-toe-cli/` | ETH Sepolia | Working |
 | tic-tac-toe-sol | `~/RustroverProjects/tic-tac-toe-sol/` | Solana Devnet | Deployed |
 
 **Shared Addresses (Sepolia):** Factory `0xa0B53DbDb0052403E38BBC31f01367aC6782118E` / Game `0x340AC014d800Ac398Af239Cebc3a376eb71B0353`

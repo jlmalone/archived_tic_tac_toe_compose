@@ -60,7 +60,7 @@ object Blockchain {
     private val SEPOLIA_CHAIN_ID = dotenv["SEPOLIA_CHAIN_ID"]?.toLongOrNull() ?: 11155111L
     private val HARDHAT_CHAIN_ID = dotenv["HARDHAT_CHAIN_ID"]?.toLongOrNull() ?: 31337L
 
-    private val HARDHAT_PROJECT_DIR = dotenv["HARDHAT_PROJECT_DIR"] ?: "/Users/josephmalone/tic-tac-toe-smart-contract"
+    private val HARDHAT_PROJECT_DIR = dotenv["HARDHAT_PROJECT_DIR"] ?: "${System.getProperty("user.home")}/tic-tac-toe-smart-contract"
 
     private val RPC_URL: String
         get() = if (localFlag)
